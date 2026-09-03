@@ -52,6 +52,7 @@ import {
 } from "./lib/client-key-store.js";
 import { getUsageSummary, getUsageDaily, getSavings } from "./lib/usage-analytics.js";
 import { routeChatCompletions } from "./lib/router.js";
+import { scanIntakeDir, getIntakeStatus } from "./lib/intake-watcher.js";
 
 const log = createLogger("admin-api");
 export const adminApi = new Hono();
@@ -783,4 +784,15 @@ adminApi.post("/api/proxy/chat/completions", async (c) => {
   } catch (err) {
     return c.json({ error: (err as Error).message }, 500);
   }
+});
+
+// --- Intake folder (drop new trial keys here) ---
+
+adminApi.get("/api/keys/intake/status", (c) => {
+  return c.json({ data: getIntakeStatus() });
+});
+
+adminApi.post("/api/keys/intake/scan", async (c) => {
+  const report = await scanIntakeDir();
+  return c.json({ data: report });
 });

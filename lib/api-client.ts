@@ -513,3 +513,36 @@ export async function playgroundChat(body: { model: string; messages: Array<{ ro
     body: JSON.stringify({ ...body, stream: body.stream ?? true }),
   });
 }
+
+// --- Intake folder ---
+
+export interface IntakeReport {
+  scanned_at: string;
+  dir: string;
+  files_handled: number;
+  keys_imported: number;
+  keys_skipped: number;
+  errors: string[];
+  processed_files: string[];
+}
+
+export interface IntakeStatus {
+  dir: string;
+  watching: boolean;
+  auto_groups: string[];
+  last_report: IntakeReport | null;
+}
+
+export async function fetchIntakeStatus(): Promise<IntakeStatus> {
+  const res = await fetch(`${BASE_URL}/api/keys/intake/status`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch intake status: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function scanIntakeFolder(): Promise<IntakeReport> {
+  const res = await fetch(`${BASE_URL}/api/keys/intake/scan`, { method: 'POST', headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to scan intake folder: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}

@@ -60,6 +60,14 @@ export const config = {
     payload: env("LOG_PAYLOAD", "false") === "true",
     maxRequestLogCount: envInt("MAX_REQUEST_LOG_COUNT", 1000),
   },
+  intake: {
+    dir: env("INTAKE_DIR", "./incoming"),
+    watch: env("INTAKE_WATCH", "true") === "true",
+    autoGroups: env("INTAKE_AUTO_GROUPS", "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
 } as const;
 
 export type Config = typeof config;

@@ -6,6 +6,7 @@ import { getDb, closeDb } from "./lib/database.js";
 import { adminApi } from "./admin-api.js";
 import { proxyApi } from "./proxy-api.js";
 import { startHealthChecker, stopHealthChecker } from "./lib/health-checker.js";
+import { startIntakeWatcher, stopIntakeWatcher } from "./lib/intake-watcher.js";
 import { APP_FULL_NAME, APP_VERSION } from "./lib/version.js";
 
 const log = createLogger("server");
@@ -50,14 +51,20 @@ log.info(`Proxy server listening on http://${host}:${port}`);
 // Start periodic health checker (every 3 hours)
 startHealthChecker({ intervalHours: 3, enabled: true });
 
+// Watch the intake folder for dropped key files (./incoming by default)
+startIntakeWatcher();
+
 // Graceful shutdown
-process.on("SIGINT", () => {
+const shutdown = () => {
   log.info("Shutting down...");
   stopHealthChecker();
+  stopIntakeWatcher();
   server.close();
   closeDb();
   process.exit(0);
-});
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 process.on("SIGTERM", () => {
   log.info("Shutting down...");

@@ -114,6 +114,9 @@ Dashboard (Next.js 14, :3456) — rewrites /api/* to the server, single-origin
 | `DEFAULT_REGION` | `ap-southeast-1` | Default DashScope region |
 | `UNKNOWN_MODEL_POLICY` | `reject` | `reject` or `default_group` (+ `DEFAULT_GROUP`) |
 | `TRIAL_PRESETS_PATH` | — | JSON override for free-trial presets |
+| `INTAKE_DIR` | `./incoming` | Watched folder — drop key files (txt/CSV/JSON) for auto-import |
+| `INTAKE_WATCH` | `true` | Disable the intake folder watcher |
+| `INTAKE_AUTO_GROUPS` | — | Comma-separated group ids to auto-attach imported keys to |
 | `PRICING_FALLBACK_PROMPT` / `PRICING_FALLBACK_COMPLETION` | `0.5` / `1.5` | USD per 1M tokens for uncatalogued models |
 
 > Trial preset amounts are *estimates* of each provider's current promotion (they change

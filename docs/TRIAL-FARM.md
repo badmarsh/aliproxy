@@ -13,12 +13,36 @@ This guide walks the loop. Everything works offline against the built-in Echo pr
 
 ## 1. Stock the farm
 
-**One key at a time** — Dashboard → Overview → *Add New Key*. Pick a provider preset
-(its trial quotas seed automatically), paste the secret. Secrets are AES-256-GCM
-encrypted; only fingerprints are ever shown again.
+**Why there's no "login with Google" for this:** Alibaba doesn't expose an OAuth flow
+that issues DashScope keys to third-party apps — even their temporary-token API requires
+an existing permanent key. The Model Studio console is the only key source. So the loop
+below makes everything *except the copy-paste* automatic.
 
-**In bulk** — Dashboard accepts JSON arrays, `{ keys: [...] }`, raw `sk-…` lines, or the
-CSV export format from the DashScope console:
+**One key at a time** — Dashboard → Overview → *Add New Key*. Pick a provider preset
+(its trial quotas seed automatically), paste the secret. The dialog links straight to
+the Model Studio API-key page. Secrets are AES-256-GCM encrypted; only fingerprints are
+ever shown again.
+
+**Zero-click after paste — the intake folder.** Drop files into `./incoming/` and the
+watcher does the rest (encrypt → import → seed trials → move to `processed/`):
+
+```bash
+mkdir -p incoming
+echo "sk-your-new-trial-key" > incoming/today.txt        # raw lines
+cp ~/Downloads/workspace-export.csv incoming/            # DashScope console export
+echo '{"keys":[{"secret":"sk-x","base_url":"https://api.deepseek.com/v1"}]}' > incoming/batch.json
+```
+
+Watch it happen live (Settings → *Trial key intake*), or force a sweep:
+
+```bash
+curl -X POST localhost:8080/api/keys/intake/scan -H "Authorization: Bearer $MASTER"
+```
+
+Auto-attach new keys to groups with `INTAKE_AUTO_GROUPS=qwen3.8-max,qwen-plus` in `.env`.
+
+**In bulk via API** — JSON arrays, `{ keys: [...] }`, raw `sk-…` lines, or the CSV export
+format from the DashScope console:
 
 ```bash
 curl -X POST localhost:8080/api/keys/import \

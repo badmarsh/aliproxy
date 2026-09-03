@@ -4,6 +4,17 @@ Calendar versioning since 2026 (`<year>.<release>.<patch>`). Highlights only; se
 
 ---
 
+## 2026.5.0 (2026-09-03)
+
+- **Intake folder**: watched directory (default `./incoming`) — drop raw `sk-…` lines,
+  DashScope console CSV exports, or JSON batches; keys are encrypted, imported,
+  trial-seeded, and (optionally, `INTAKE_AUTO_GROUPS`) attached to groups automatically.
+  Files move to `processed/` / `failed/`. Manual scan: `POST /api/keys/intake/scan`.
+- **Console deep links**: "Get a trial key" links to Model Studio API-key pages (intl/CN)
+  in the dashboard. (Alibaba exposes no OAuth/API for key issuance — the console remains
+  the only source, so the paste is the only manual step left.)
+- Graceful shutdown handles SIGTERM too.
+
 ## 2026.4.0 — “Trial Farm” (2026-09-03)
 
 The free-trial-key-hoarder release.

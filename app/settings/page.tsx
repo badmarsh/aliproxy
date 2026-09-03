@@ -5,22 +5,38 @@ import { AppShell } from '@/components/app-shell'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { fetchConfig, fetchProviders, fetchTrialRadar, reseedTrials, type ProviderPresetItem } from '@/lib/api-client'
+import {
+  fetchConfig,
+  fetchProviders,
+  fetchTrialRadar,
+  reseedTrials,
+  fetchIntakeStatus,
+  scanIntakeFolder,
+  type ProviderPresetItem,
+  type IntakeStatus,
+} from '@/lib/api-client'
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<any>(null)
   const [providers, setProviders] = useState<ProviderPresetItem[]>([])
   const [radar, setRadar] = useState<any>(null)
+  const [intake, setIntake] = useState<IntakeStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function load() {
     try {
-      const [c, p, r] = await Promise.allSettled([fetchConfig(), fetchProviders(), fetchTrialRadar()])
+      const [c, p, r, i] = await Promise.allSettled([
+        fetchConfig(),
+        fetchProviders(),
+        fetchTrialRadar(),
+        fetchIntakeStatus(),
+      ])
       if (c.status === 'fulfilled') setConfig(c.value)
       if (p.status === 'fulfilled') setProviders(p.value)
       if (r.status === 'fulfilled') setRadar(r.value)
+      if (i.status === 'fulfilled') setIntake(i.value)
       setError(c.status === 'rejected' ? 'Could not reach the proxy server — is `npm run proxy` running?' : null)
     } catch (err: any) {
       setError(err.message)
@@ -40,6 +56,24 @@ export default function SettingsPage() {
       await load()
     } catch (err: any) {
       setNotice(`Reseed failed: ${err.message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleScan() {
+    setBusy(true)
+    setNotice(null)
+    try {
+      const report = await scanIntakeFolder()
+      setNotice(
+        report.files_handled === 0
+          ? 'Intake folder is empty — nothing to import.'
+          : `Imported ${report.keys_imported} keys from ${report.files_handled} file(s).`,
+      )
+      await load()
+    } catch (err: any) {
+      setNotice(`Scan failed: ${err.message}`)
     } finally {
       setBusy(false)
     }
@@ -106,6 +140,61 @@ curl -X POST http://127.0.0.1:8080/v1/videos/generations \\
   -d '{"model":"wan2.1-t2v-turbo","input":{"prompt":"a cat astronaut"}}'
 # → then GET /v1/videos/generations/{task_id}`}
             </pre>
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Trial key intake</CardTitle>
+            <CardDescription>
+              Alibaba has no OAuth for issuing keys — the console is the only source. Drop files into the
+              intake folder and everything else (encrypt → import → seed trials) happens automatically.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border p-2.5">
+                <div className="text-xs text-muted-foreground">Folder</div>
+                <code className="text-xs font-semibold">{intake?.dir ?? '—'}</code>
+              </div>
+              <div className="rounded-lg border p-2.5">
+                <div className="text-xs text-muted-foreground">Watching</div>
+                <Badge variant={intake?.watching ? 'default' : 'secondary'} className="text-xs">
+                  {intake?.watching ? 'live' : 'idle'}
+                </Badge>
+              </div>
+              <div className="rounded-lg border p-2.5">
+                <div className="text-xs text-muted-foreground">Auto-attach groups</div>
+                <code className="text-xs">{intake?.auto_groups?.length ? intake.auto_groups.join(', ') : 'none'}</code>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Accepted: raw <code className="rounded bg-muted px-1">sk-…</code> lines (.txt), DashScope console CSV
+              exports, JSON (<code className="rounded bg-muted px-1">{`{keys:[…]}`}</code>). Processed files move to{' '}
+              <code className="rounded bg-muted px-1">processed/</code>; configure via <code className="rounded bg-muted px-1">INTAKE_DIR</code>,{' '}
+              <code className="rounded bg-muted px-1">INTAKE_AUTO_GROUPS</code>.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleScan} disabled={busy}>
+                Scan intake folder now
+              </Button>
+              <a
+                href="https://bailian.console.alibabacloud.com/?tab=model#/api-key"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm font-medium underline underline-offset-2"
+              >
+                Get a trial key (Model Studio intl) ↗
+              </a>
+              <a
+                href="https://bailian.console.aliyun.com/?tab=model#/api-key"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm font-medium underline underline-offset-2"
+              >
+                China console ↗
+              </a>
+            </div>
           </CardContent>
         </Card>
 

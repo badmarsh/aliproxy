@@ -599,7 +599,15 @@ export default function DashboardPage() {
                             ))}
                           </select>
                           <p className="text-xs text-muted-foreground">
-                            Provider presets seed free-trial quotas automatically (Quota Radar).
+                            Provider presets seed free-trial quotas automatically (Quota Radar). Need a key?{' '}
+                            <a
+                              href="https://bailian.console.alibabacloud.com/?tab=model#/api-key"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-medium underline underline-offset-2"
+                            >
+                              Open Model Studio → API Keys ↗
+                            </a>
                           </p>
                         </div>
                         <div className="grid gap-2">
