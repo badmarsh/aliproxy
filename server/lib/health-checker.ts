@@ -217,7 +217,7 @@ export async function runHealthCheck(keyId: string): Promise<{
   let passed = 0;
   let failed = 0;
 
-  for (const modelId of models) {
+  for (const modelId of Array.from(models)) {
     const result = await testModelHealth(keyWithSecret, modelId);
     tested++;
 

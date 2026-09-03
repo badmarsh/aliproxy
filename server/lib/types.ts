@@ -20,7 +20,7 @@ export type TelemetrySource =
   | "local_estimate"
   | "unknown";
 
-export type ModelCapability = "chat" | "streaming" | "embeddings" | "vision" | "tools";
+export type ModelCapability = "chat" | "streaming" | "embeddings" | "vision" | "tools" | "images" | "video";
 
 export interface ApiKey {
   id: string;

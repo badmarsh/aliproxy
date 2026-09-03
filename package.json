@@ -1,6 +1,7 @@
 {
-  "name": "qwen-proxy-dashboard",
-  "version": "0.1.0",
+  "name": "aliproxy",
+  "version": "2026.4.0",
+  "description": "Aliproxy 2026 — Ultimate Proxy Suite: DashScope/Qwen API key management, model group routing, metrics, and an OpenAI-compatible proxy server.",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3456",
@@ -11,6 +12,7 @@
     "proxy:build": "tsc -p tsconfig.server.json",
     "proxy:import": "tsx server/scripts/import-keys.ts",
     "proxy:seed": "tsx server/scripts/seed-defaults.ts",
+    "proxy:seed-farm": "tsx server/scripts/seed-farm.ts",
     "proxy:create-groups": "tsx server/scripts/create-custom-groups.ts",
     "test": "vitest run --fileParallelism=false",
     "test:watch": "vitest --fileParallelism=false"

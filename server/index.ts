@@ -6,6 +6,7 @@ import { getDb, closeDb } from "./lib/database.js";
 import { adminApi } from "./admin-api.js";
 import { proxyApi } from "./proxy-api.js";
 import { startHealthChecker, stopHealthChecker } from "./lib/health-checker.js";
+import { APP_FULL_NAME, APP_VERSION } from "./lib/version.js";
 
 const log = createLogger("server");
 
@@ -23,8 +24,8 @@ app.route("/", proxyApi);
 // Root redirect
 app.get("/", (c) => {
   return c.json({
-    name: "Qwen Proxy",
-    version: "0.1.0",
+    name: APP_FULL_NAME,
+    version: APP_VERSION,
     endpoints: {
       admin: "/api/keys, /api/groups, /api/logs, /api/stats/summary",
       proxy: "/v1/chat/completions, /v1/embeddings, /v1/models",
@@ -36,7 +37,7 @@ app.get("/", (c) => {
 const port = config.proxy.port;
 const host = config.proxy.host;
 
-log.info("Starting Qwen Proxy", { port, host });
+log.info(`Starting ${APP_FULL_NAME} v${APP_VERSION}`, { port, host });
 
 const server = serve({
   fetch: app.fetch,

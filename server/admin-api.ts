@@ -20,13 +20,38 @@ import {
   updateGroup,
   deleteGroup,
 } from "./lib/group-store.js";
-import { getRecentLogs, getStats, getTimeline } from "./lib/request-log-store.js";
+import { getRecentLogs, getStats, getTimeline, logRequest } from "./lib/request-log-store.js";
 import { adapter } from "./lib/dashscope-adapter.js";
 import { detectKeyType, detectRegion, parseCsvKey } from "./lib/csv-parser.js";
 import type { KeyType } from "./lib/types.js";
 import { getAllModelAvailability, getUnavailableModels, resetKeyAvailability } from "./lib/model-availability-store.js";
 import { recordHealthCheck, getRecentHealthChecks, getHealthSummary, purgeOldHealthChecks } from "./lib/health-check-store.js";
 import { runHealthCheck, startHealthChecker, stopHealthChecker, runAllHealthChecks } from "./lib/health-checker.js";
+import {
+  seedTrialsForKey,
+  seedAllMissingTrials,
+  getTrialRadar,
+  getExpiringTrials,
+  setTrialQuota,
+  deleteTrialQuota,
+  consumeTrialTokens,
+} from "./lib/trial-store.js";
+import { listPresetProviders } from "./lib/trial-presets.js";
+import { PROVIDERS } from "./lib/providers.js";
+import { listPricing } from "./lib/pricing.js";
+import {
+  createClientKey,
+  listClientKeys,
+  getClientKey,
+  updateClientKey,
+  deleteClientKey,
+  rotateClientKey,
+  getTodayUsage,
+  recordUsage,
+  MASTER_USAGE_ID,
+} from "./lib/client-key-store.js";
+import { getUsageSummary, getUsageDaily, getSavings } from "./lib/usage-analytics.js";
+import { routeChatCompletions } from "./lib/router.js";
 
 const log = createLogger("admin-api");
 export const adminApi = new Hono();
@@ -78,7 +103,10 @@ adminApi.post("/api/keys", async (c) => {
       groups,
     });
 
-    return c.json({ data: key }, 201);
+    // Trial Farm: auto-seed free-trial quota rows from provider presets
+    const trials_seeded = seedTrialsForKey(key.id, base_url);
+
+    return c.json({ data: key, trials_seeded }, 201);
   } catch (err) {
     const msg = (err as Error).message;
     if (msg.includes("already exists")) {
@@ -227,7 +255,9 @@ adminApi.post("/api/keys/import", async (c) => {
     }));
 
     const result = importKeysBatch(inputs);
-    return c.json({ data: result }, 201);
+    // Seed trial quotas for anything newly imported
+    const seeded = seedAllMissingTrials();
+    return c.json({ data: { ...result, trials_seeded: seeded.rows_seeded } }, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
@@ -497,6 +527,259 @@ adminApi.post("/api/health-checks/run", async (c) => {
       await runAllHealthChecks();
       return c.json({ success: true, message: "Health check cycle completed" });
     }
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+// --- Providers & Pricing ---
+
+adminApi.get("/api/providers", (c) => {
+  return c.json({ data: PROVIDERS });
+});
+
+adminApi.get("/api/pricing", (c) => {
+  return c.json({ data: listPricing() });
+});
+
+// --- Trial Farm ---
+
+adminApi.get("/api/trials/radar", (c) => {
+  return c.json({ data: getTrialRadar() });
+});
+
+adminApi.get("/api/trials/expiring", (c) => {
+  const days = parseInt(c.req.query("days") || "7", 10);
+  return c.json({ data: getExpiringTrials(days) });
+});
+
+adminApi.get("/api/trials/presets", (c) => {
+  return c.json({ data: listPresetProviders() });
+});
+
+adminApi.post("/api/trials/reseed", (c) => {
+  const keyId = c.req.query("key_id");
+  if (keyId) {
+    const key = getKey(keyId);
+    if (!key) return c.json({ error: "not found" }, 404);
+    const seeded = seedTrialsForKey(keyId, key.base_url);
+    return c.json({ data: { keys_touched: seeded > 0 ? 1 : 0, rows_seeded: seeded } });
+  }
+  return c.json({ data: seedAllMissingTrials() });
+});
+
+adminApi.put("/api/trials/:keyId/:model", async (c) => {
+  try {
+    const { keyId, model } = c.req.param();
+    const key = getKey(keyId);
+    if (!key) return c.json({ error: "key not found" }, 404);
+
+    const body = await c.req.json();
+    const kind = body.kind === "calls" ? "calls" : "tokens";
+    const limit = Number(body.limit_amount);
+    if (!Number.isFinite(limit) || limit < 0) {
+      return c.json({ error: "limit_amount must be a non-negative number" }, 400);
+    }
+    const quota = setTrialQuota(keyId, model, kind, limit, body.expires_at || null);
+    return c.json({ data: quota });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+adminApi.delete("/api/trials/:keyId/:model", (c) => {
+  const { keyId, model } = c.req.param();
+  const deleted = deleteTrialQuota(keyId, model);
+  if (!deleted) return c.json({ error: "not found" }, 404);
+  return c.json({ success: true });
+});
+
+adminApi.get("/api/keys/:id/trials", (c) => {
+  const keyId = c.req.param("id");
+  const key = getKey(keyId);
+  if (!key) return c.json({ error: "not found" }, 404);
+  const quotas = getTrialRadar()
+    .models.flatMap((m) => m.keys.filter((k) => k.key_id === keyId).map((k) => ({ ...k, model: m.model, kind: m.kind })));
+  return c.json({ data: quotas });
+});
+
+// --- Key Farm sweep: validate every key + refresh trial rows ---
+
+adminApi.post("/api/keys/sweep", async (c) => {
+  const keys = listKeys();
+  const report: Array<{ id: string; alias: string; ok: boolean; status: string; latency_ms: number; models: number; error?: string }> = [];
+  let seeded = 0;
+
+  for (const key of keys) {
+    seeded += seedTrialsForKey(key.id, key.base_url);
+    const withSecret = getKeyWithSecret(key.id);
+    if (!withSecret) continue;
+
+    const started = Date.now();
+    try {
+      const models = await adapter.listModels(withSecret, 10_000);
+      updateKey(key.id, {
+        status: "active",
+        last_validated_at: new Date().toISOString(),
+        last_error_code: null,
+        last_error_message: null,
+        consecutive_failures: 0,
+      });
+      report.push({ id: key.id, alias: key.alias, ok: true, status: "active", latency_ms: Date.now() - started, models: models.length });
+    } catch (err) {
+      const error = err as any;
+      updateKey(key.id, {
+        status: error.classifiedStatus || "unknown",
+        last_error_code: error.code || "unknown",
+        last_error_message: error.message || String(err),
+        last_validated_at: new Date().toISOString(),
+      });
+      report.push({ id: key.id, alias: key.alias, ok: false, status: error.classifiedStatus || "unknown", latency_ms: Date.now() - started, models: 0, error: error.message || String(err) });
+    }
+  }
+
+  return c.json({
+    data: {
+      swept_at: new Date().toISOString(),
+      keys_checked: report.length,
+      keys_valid: report.filter((r) => r.ok).length,
+      keys_failed: report.filter((r) => !r.ok).length,
+      trials_seeded: seeded,
+      keys: report,
+    },
+  });
+});
+
+// --- Client Keys (virtual sk-aliproxy-* keys) ---
+
+adminApi.get("/api/client-keys", (c) => {
+  return c.json({ data: listClientKeys() });
+});
+
+adminApi.post("/api/client-keys", async (c) => {
+  try {
+    const body = await c.req.json();
+    if (!body.name) return c.json({ error: "name is required" }, 400);
+    const { record, plaintext } = createClientKey({
+      name: body.name,
+      rpm_limit: body.rpm_limit ?? null,
+      daily_request_limit: body.daily_request_limit ?? null,
+      daily_token_budget: body.daily_token_budget ?? null,
+      allowed_group_ids: Array.isArray(body.allowed_group_ids) ? body.allowed_group_ids : [],
+    });
+    return c.json({ data: { ...record, plaintext } }, 201);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+adminApi.get("/api/client-keys/:id", (c) => {
+  const key = getClientKey(c.req.param("id"));
+  if (!key) return c.json({ error: "not found" }, 404);
+  return c.json({ data: { ...key, today_usage: getTodayUsage(key.id) } });
+});
+
+adminApi.put("/api/client-keys/:id", async (c) => {
+  try {
+    const key = updateClientKey(c.req.param("id"), await c.req.json());
+    if (!key) return c.json({ error: "not found" }, 404);
+    return c.json({ data: key });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+adminApi.delete("/api/client-keys/:id", (c) => {
+  const deleted = deleteClientKey(c.req.param("id"));
+  if (!deleted) return c.json({ error: "not found" }, 404);
+  return c.json({ success: true });
+});
+
+adminApi.post("/api/client-keys/:id/rotate", (c) => {
+  const rotated = rotateClientKey(c.req.param("id"));
+  if (!rotated) return c.json({ error: "not found" }, 404);
+  return c.json({ data: { ...rotated.record, plaintext: rotated.plaintext } });
+});
+
+// --- Usage & Savings ---
+
+adminApi.get("/api/usage/summary", (c) => {
+  const days = parseInt(c.req.query("days") || "30", 10);
+  return c.json({ data: getUsageSummary(days) });
+});
+
+adminApi.get("/api/usage/daily", (c) => {
+  const days = parseInt(c.req.query("days") || "30", 10);
+  return c.json({ data: getUsageDaily(days) });
+});
+
+adminApi.get("/api/usage/savings", (c) => {
+  return c.json({ data: getSavings() });
+});
+
+// --- Playground passthrough (admin-authed, same-origin) ---
+
+adminApi.post("/api/proxy/chat/completions", async (c) => {
+  const startTime = Date.now();
+  try {
+    const body = await c.req.json();
+    if (!body.model || !Array.isArray(body.messages)) {
+      return c.json({ error: "'model' and 'messages' are required" }, 400);
+    }
+
+    const result = await routeChatCompletions(body, null, {
+      usageId: MASTER_USAGE_ID,
+      allowedGroupIds: null,
+    });
+
+    const headers: Record<string, string> = { "X-Request-Id": result.requestId };
+    if (result.groupId) headers["X-Aliproxy-Group"] = result.groupId;
+
+    if (body.stream === true) {
+      // Pass the stream through untouched (SSE)
+      return new Response(result.response.body as any, {
+        status: result.response.status,
+        headers: { ...Object.fromEntries(result.response.headers.entries()), ...headers },
+      });
+    }
+
+    const responseBody: any = await result.response.json();
+    const latency = Date.now() - startTime;
+    const tokens =
+      (responseBody?.usage?.prompt_tokens ?? 0) + (responseBody?.usage?.completion_tokens ?? 0) || null;
+
+    if (result.response.ok && result.keyId && result.upstreamModel && tokens) {
+      consumeTrialTokens(result.keyId, result.upstreamModel, tokens);
+    }
+
+    logRequest({
+      request_id: result.requestId,
+      timestamp: new Date().toISOString(),
+      client_ip: "playground",
+      requested_model: body.model,
+      resolved_group_id: result.groupId || null,
+      upstream_model_id: result.upstreamModel || null,
+      api_key_id: result.keyId || null,
+      status_code: result.response.status,
+      error_code: responseBody?.error?.code || null,
+      latency_ms: latency,
+      ttft_ms: null,
+      prompt_tokens: responseBody?.usage?.prompt_tokens ?? null,
+      completion_tokens: responseBody?.usage?.completion_tokens ?? null,
+      streaming: false,
+      retry_count: result.retryCount,
+    });
+
+    recordUsage({
+      client_key_id: MASTER_USAGE_ID,
+      group_id: result.groupId || null,
+      model: result.upstreamModel || body.model,
+      status_code: result.response.status,
+      prompt_tokens: responseBody?.usage?.prompt_tokens ?? 0,
+      completion_tokens: responseBody?.usage?.completion_tokens ?? 0,
+    });
+
+    return c.json(responseBody, result.response.status as any, headers);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 500);
   }

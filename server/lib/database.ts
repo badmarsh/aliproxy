@@ -155,6 +155,58 @@ function runMigrations(database: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_health_checks_checked_at ON health_checks(checked_at);
       `,
     },
+    {
+      id: "004_client_keys_usage_trials",
+      sql: `
+        CREATE TABLE IF NOT EXISTS client_keys (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          key_hash TEXT NOT NULL UNIQUE,
+          key_prefix TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          rpm_limit INTEGER,
+          daily_request_limit INTEGER,
+          daily_token_budget INTEGER,
+          allowed_group_ids TEXT NOT NULL DEFAULT '[]',
+          total_requests INTEGER NOT NULL DEFAULT 0,
+          total_tokens INTEGER NOT NULL DEFAULT 0,
+          total_cost_usd REAL NOT NULL DEFAULT 0,
+          last_used_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS usage_daily (
+          date TEXT NOT NULL,
+          client_key_id TEXT NOT NULL,
+          group_id TEXT,
+          model TEXT NOT NULL,
+          requests INTEGER NOT NULL DEFAULT 0,
+          errors INTEGER NOT NULL DEFAULT 0,
+          prompt_tokens INTEGER NOT NULL DEFAULT 0,
+          completion_tokens INTEGER NOT NULL DEFAULT 0,
+          cost_usd REAL NOT NULL DEFAULT 0,
+          PRIMARY KEY (date, client_key_id, group_id, model)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_usage_daily_date ON usage_daily(date);
+        CREATE INDEX IF NOT EXISTS idx_usage_daily_key ON usage_daily(client_key_id);
+
+        CREATE TABLE IF NOT EXISTS trial_quotas (
+          api_key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+          model TEXT NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'tokens',
+          limit_amount REAL NOT NULL,
+          used REAL NOT NULL DEFAULT 0,
+          expires_at TEXT,
+          source TEXT NOT NULL DEFAULT 'preset',
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (api_key_id, model)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_trial_quotas_model ON trial_quotas(model);
+      `,
+    },
   ];
 
   const insertMigration = database.prepare(

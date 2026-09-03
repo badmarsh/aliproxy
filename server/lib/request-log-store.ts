@@ -32,6 +32,7 @@ export function logRequest(entry: LogEntry): void {
       status_code, error_code, latency_ms, ttft_ms,
       prompt_tokens, completion_tokens, streaming, retry_count
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(request_id) DO NOTHING
   `).run(
     id,
     entry.request_id,

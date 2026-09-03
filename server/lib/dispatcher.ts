@@ -1,22 +1,55 @@
 import { createLogger } from "./logger.js";
 import { getKeysForDispatch, updateKey } from "./secret-store.js";
 import { getDb } from "./database.js";
+import { trialExhausted, getTrialQuota } from "./trial-store.js";
 import type { ApiKeyWithSecret, SelectionStrategy } from "./types.js";
 
 const log = createLogger("dispatcher");
 
 const roundRobinCounters: Record<string, number> = {};
 
+/**
+ * Pick the next key for a group.
+ *
+ * When `trialModel` is set (Trial Farm mode), keys whose free-trial quota for
+ * that specific model is exhausted are skipped. If *every* tracked key is
+ * exhausted, returns null so callers can surface a clear "trial exhausted"
+ * error instead of silently burning paid quota. Keys with no trial row for
+ * the model are unaffected.
+ *
+ * For first_available, live keys are additionally ordered by soonest trial
+ * expiry — burn the quotas that die first.
+ */
 export function dispatchKey(
   groupId: string,
   strategy: SelectionStrategy,
   weights?: Record<string, number>,
+  trialModel?: string,
 ): ApiKeyWithSecret | null {
-  const keys = getKeysForDispatch(groupId);
+  let keys = getKeysForDispatch(groupId);
 
   if (keys.length === 0) {
     log.warn("No eligible keys for group", { groupId });
     return null;
+  }
+
+  if (trialModel) {
+    const live = keys.filter((k) => !trialExhausted(k.id, trialModel));
+    const anyTracked = keys.some((k) => getTrialQuota(k.id, trialModel) !== null);
+
+    if (live.length > 0) {
+      keys = live;
+      if (strategy === "first_available") {
+        const expiry = (k: ApiKeyWithSecret) => {
+          const q = getTrialQuota(k.id, trialModel);
+          return q?.expires_at ? new Date(q.expires_at).getTime() : Number.MAX_SAFE_INTEGER;
+        };
+        keys = [...keys].sort((a, b) => expiry(a) - expiry(b));
+      }
+    } else if (anyTracked) {
+      log.warn("All trial quotas exhausted for model", { groupId, trialModel, eligibleKeys: keys.length });
+      return null;
+    }
   }
 
   switch (strategy) {
