@@ -1,6 +1,6 @@
 # Aliproxy 2026 — Ultimate Proxy Suite
 
-**Version 2026.4.0 · “Trial Farm” edition** *(successor of AliProxy v0.3 / Qwen Proxy Dashboard)*
+**Version 2026.8.0 · “Trial Farm” edition** *(successor of AliProxy v0.3 / Qwen Proxy Dashboard)*
 
 A local gateway + dashboard for people who collect **free-trial API keys**. DashScope hands
 every fresh account ~1M tokens per model — plus trials for image and video models. Aliproxy

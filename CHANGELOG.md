@@ -4,6 +4,13 @@ Calendar versioning since 2026 (`<year>.<release>.<patch>`). Highlights only; se
 
 ---
 
+## 2026.8.0 — Release cut / version alignment (2026-09-03)
+
+- Bump all product version metadata to `2026.8.0`: `package.json`,
+  `package-lock.json`, `server/lib/version.ts`, and `README.md`.
+- Changelog note for the release cut following the merged 2026.7.0
+  “Perfection pass”.
+
 ## 2026.7.0 — “Perfection pass” (2026-09-03)
 
 Gap analysis + execution of `docs/MEGAPROMPT.md`:
