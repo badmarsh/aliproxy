@@ -84,7 +84,7 @@ export function getUsageSummary(days = 30): UsageSummary {
     db
       .prepare(
         `SELECT group_id, SUM(requests) requests, SUM(prompt_tokens + completion_tokens) tokens, SUM(cost_usd) cost_usd
-         FROM usage_daily WHERE ${clause} AND group_id IS NOT NULL
+         FROM usage_daily WHERE ${clause} AND group_id IS NOT NULL AND group_id != ''
          GROUP BY group_id ORDER BY cost_usd DESC LIMIT 25`,
       )
       .all(...params) as any[]

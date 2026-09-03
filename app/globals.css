@@ -53,7 +53,194 @@
   * {
     @apply border-border;
   }
+  html {
+    background-color: hsl(var(--background));
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    background-color: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* HUD styling — shared backdrop, cards, header and fine details      */
+/* ------------------------------------------------------------------ */
+
+.hud-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1100px 520px at 50% -12%, hsl(var(--primary) / 0.07), transparent 62%),
+    radial-gradient(760px 460px at 92% 18%, hsl(var(--accent) / 0.08), transparent 60%),
+    radial-gradient(hsl(var(--primary) / 0.09) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    22px 22px;
+}
+
+.hud-card {
+  position: relative;
+  overflow: hidden;
+  transition:
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.hud-card::before,
+.hud-card::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  opacity: 0.55;
+  border-color: hsl(var(--primary) / 0.35);
+  transition:
+    width 0.25s ease,
+    height 0.25s ease,
+    border-color 0.25s ease,
+    opacity 0.25s ease;
+}
+
+.hud-card::before {
+  top: 8px;
+  left: 8px;
+  border-top: 1.5px solid hsl(var(--primary) / 0.35);
+  border-left: 1.5px solid hsl(var(--primary) / 0.35);
+}
+
+.hud-card::after {
+  right: 8px;
+  bottom: 8px;
+  border-right: 1.5px solid hsl(var(--primary) / 0.35);
+  border-bottom: 1.5px solid hsl(var(--primary) / 0.35);
+}
+
+.hud-card:hover {
+  border-color: hsl(var(--primary) / 0.22);
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.08),
+    0 18px 46px -18px hsl(var(--primary) / 0.28),
+    inset 0 0 30px hsl(var(--primary) / 0.025);
+  background-image: radial-gradient(80% 60% at 50% 0%, hsl(var(--primary) / 0.04), transparent 70%);
+}
+
+.hud-card:hover::before,
+.hud-card:hover::after {
+  width: 18px;
+  height: 18px;
+  opacity: 0.85;
+  border-color: hsl(var(--primary) / 0.6);
+}
+
+.hud-header {
+  position: relative;
+}
+
+.hud-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--primary) / 0.25) 18%,
+    hsl(var(--accent) / 0.45) 50%,
+    hsl(var(--primary) / 0.25) 82%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: hud-scanline 5s linear infinite;
+}
+
+@keyframes hud-scanline {
+  from {
+    background-position: 0% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.hud-logo {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.18),
+    0 0 20px hsl(var(--primary) / 0.35),
+    0 0 2px hsl(var(--accent) / 0.4);
+}
+
+.hud-nav-active {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.16),
+    0 4px 14px -6px hsl(var(--primary) / 0.45);
+}
+
+.hud-ping-dot {
+  position: relative;
+}
+
+.hud-ping-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 1.5px solid hsl(160 84% 39% / 0.5);
+  animation: hud-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes hud-ping {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.9;
+  }
+  75%,
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+::selection {
+  background-color: hsl(var(--primary) / 0.18);
+  color: inherit;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.5) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.4);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-header::after,
+  .hud-ping-dot::after {
+    animation: none;
+  }
+
+  .hud-card,
+  .hud-card::before,
+  .hud-card::after {
+    transition: none;
   }
 }

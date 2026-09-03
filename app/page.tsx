@@ -88,9 +88,10 @@ export default function DashboardPage() {
     strategy: 'first_available',
   })
 
-  // Load data
-  async function loadData() {
-    setLoading(true)
+  // Load data. Automatic background refreshes are silent so the UI doesn't
+  // flash "Refreshing..." every 10s; manual/first loads show the spinner.
+  async function loadData(opts: { silent?: boolean } = {}) {
+    if (!opts.silent) setLoading(true)
     setError(null)
     try {
       const [keysData, groupsData, statsData, logsData, healthData, configData, savingsData, radarData, expiringData, providersData] = await Promise.allSettled([
@@ -119,13 +120,13 @@ export default function DashboardPage() {
     } catch (err: any) {
       setError(err.message || 'Failed to connect to proxy server')
     } finally {
-      setLoading(false)
+      if (!opts.silent) setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadData()
-    const interval = setInterval(loadData, 10000) // auto-refresh every 10s
+    void loadData()
+    const interval = setInterval(() => void loadData({ silent: true }), 10000) // silent auto-refresh
     return () => clearInterval(interval)
   }, [])
 
@@ -279,7 +280,7 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <div className="flex flex-col sm:gap-4 sm:py-4">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+        <header className="hud-header sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
           <div className="flex items-center gap-3">
             <div>
               <h1 className="text-xl font-bold tracking-tight leading-tight">Aliproxy 2026</h1>
@@ -289,7 +290,7 @@ export default function DashboardPage() {
             </div>
             {health ? (
               <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="hud-ping-dot h-2 w-2 rounded-full bg-emerald-500"></span>
                 Online (v{health.proxy_version})
               </Badge>
             ) : (
@@ -297,7 +298,7 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => void loadData()} disabled={loading}>
               {loading ? 'Refreshing...' : 'Refresh'}
             </Button>
           </div>
@@ -321,7 +322,7 @@ export default function DashboardPage() {
               href={item.href}
               className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
                 item.active
-                  ? 'bg-foreground text-background'
+                  ? 'hud-nav-active bg-foreground text-background'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >

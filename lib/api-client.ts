@@ -9,6 +9,33 @@ const API_KEY = process.env.NEXT_PUBLIC_PROXY_API_KEY || "aliproxy-local-key";
 
 const ADMIN_KEY_STORAGE = 'aliproxy.adminKey';
 
+function normalizeBase(base: string): string {
+  return base.trim().replace(/\/+$/, "");
+}
+
+/** Absolute base for URL-object construction (never a bare "" or "/"). */
+function primaryBase(): string {
+  if (BASE_URL) return normalizeBase(BASE_URL);
+  if (typeof window !== "undefined") return window.location.origin;
+  return "http://localhost";
+}
+
+/**
+ * Build a fetch URL for the dashboard. With the default same-origin setup this
+ * returns a relative path (passed through Next rewrites); with a configured
+ * NEXT_PUBLIC_PROXY_API_URL it returns the absolute API origin.
+ */
+export function apiUrl(path: string): string {
+  const base = BASE_URL ? normalizeBase(BASE_URL) : "";
+  const target = path.startsWith("/") ? path : `/${path}`;
+  return base ? `${base}${target}` : target;
+}
+
+/** Same as apiUrl(), but as a fresh URL object with a real absolute base. */
+export function urlFor(path: string): URL {
+  return new URL(path, `${primaryBase()}/`);
+}
+
 /**
  * Admin key used for dashboard calls. Runtime override lives in localStorage
  * (set via Settings → Security) so a real deployment can change the master
@@ -117,7 +144,7 @@ export interface RequestLogItem {
 }
 
 export async function fetchKeys(): Promise<ApiKeyItem[]> {
-  const res = await fetch(`${BASE_URL}/api/keys`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/keys'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch keys: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
@@ -132,7 +159,7 @@ export async function createKey(data: {
   base_url: string;
   groups?: string[];
 }): Promise<ApiKeyItem> {
-  const res = await fetch(`${BASE_URL}/api/keys`, {
+  const res = await fetch(apiUrl('/api/keys'), {
     method: "POST",
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -146,7 +173,7 @@ export async function createKey(data: {
 }
 
 export async function updateKey(id: string, data: Partial<ApiKeyItem>): Promise<ApiKeyItem> {
-  const res = await fetch(`${BASE_URL}/api/keys/${id}`, {
+  const res = await fetch(apiUrl(`/api/keys/${id}`), {
     method: "PUT",
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -157,7 +184,7 @@ export async function updateKey(id: string, data: Partial<ApiKeyItem>): Promise<
 }
 
 export async function deleteKey(id: string): Promise<boolean> {
-  const res = await fetch(`${BASE_URL}/api/keys/${id}`, {
+  const res = await fetch(apiUrl(`/api/keys/${id}`), {
     method: "DELETE",
     headers: getHeaders(),
   });
@@ -165,7 +192,7 @@ export async function deleteKey(id: string): Promise<boolean> {
 }
 
 export async function testKey(id: string): Promise<{ success: boolean; latency_ms?: number; models_count?: number; error?: string; status: string }> {
-  const res = await fetch(`${BASE_URL}/api/keys/${id}/test`, {
+  const res = await fetch(apiUrl(`/api/keys/${id}/test`), {
     method: "POST",
     headers: getHeaders(),
   });
@@ -173,7 +200,7 @@ export async function testKey(id: string): Promise<{ success: boolean; latency_m
 }
 
 export async function refreshKeyQuota(id: string): Promise<{ success: boolean; latency_ms?: number; models_count?: number; data?: ApiKeyItem }> {
-  const res = await fetch(`${BASE_URL}/api/keys/${id}/refresh-quota`, {
+  const res = await fetch(apiUrl(`/api/keys/${id}/refresh-quota`), {
     method: "POST",
     headers: getHeaders(),
   });
@@ -181,7 +208,7 @@ export async function refreshKeyQuota(id: string): Promise<{ success: boolean; l
 }
 
 export async function fetchGroups(): Promise<ModelGroupItem[]> {
-  const res = await fetch(`${BASE_URL}/api/groups`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/groups'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch groups: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
@@ -198,7 +225,7 @@ export async function createGroup(data: {
   fallback_group_ids?: string[];
   enabled?: boolean;
 }): Promise<ModelGroupItem> {
-  const res = await fetch(`${BASE_URL}/api/groups`, {
+  const res = await fetch(apiUrl('/api/groups'), {
     method: "POST",
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -212,7 +239,7 @@ export async function createGroup(data: {
 }
 
 export async function updateGroup(id: string, data: Partial<ModelGroupItem>): Promise<ModelGroupItem> {
-  const res = await fetch(`${BASE_URL}/api/groups/${id}`, {
+  const res = await fetch(apiUrl(`/api/groups/${id}`), {
     method: "PUT",
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -223,7 +250,7 @@ export async function updateGroup(id: string, data: Partial<ModelGroupItem>): Pr
 }
 
 export async function deleteGroup(id: string): Promise<boolean> {
-  const res = await fetch(`${BASE_URL}/api/groups/${id}`, {
+  const res = await fetch(apiUrl(`/api/groups/${id}`), {
     method: "DELETE",
     headers: getHeaders(),
   });
@@ -231,14 +258,14 @@ export async function deleteGroup(id: string): Promise<boolean> {
 }
 
 export async function fetchStatsSummary(): Promise<StatsSummary> {
-  const res = await fetch(`${BASE_URL}/api/stats/summary`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/stats/summary'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch summary: ${res.statusText}`);
   const json = await res.json();
   return json.data;
 }
 
 export async function fetchStatsTimeline(hours: number = 24): Promise<TimelinePoint[]> {
-  const res = await fetch(`${BASE_URL}/api/stats/timeline?hours=${hours}`, { headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/stats/timeline?hours=${hours}`), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch timeline: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
@@ -252,7 +279,7 @@ export interface LogFilters {
 }
 
 export async function fetchLogs(limit: number = 50, filters: LogFilters = {}): Promise<RequestLogItem[]> {
-  const url = new URL(`${BASE_URL}/api/logs`);
+  const url = urlFor('/api/logs');
   url.searchParams.set("limit", String(limit));
   if (filters.group) url.searchParams.set("group", filters.group);
   if (filters.model) url.searchParams.set("model", filters.model);
@@ -266,20 +293,20 @@ export async function fetchLogs(limit: number = 50, filters: LogFilters = {}): P
 }
 
 export async function fetchHealth(): Promise<{ status: string; uptime_seconds: number; proxy_version: string }> {
-  const res = await fetch(`${BASE_URL}/health`);
+  const res = await fetch(apiUrl('/health'));
   if (!res.ok) throw new Error(`Failed to fetch health: ${res.statusText}`);
   return await res.json();
 }
 
 export async function fetchConfig(): Promise<any> {
-  const res = await fetch(`${BASE_URL}/api/config`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/config'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch config: ${res.statusText}`);
   const json = await res.json();
   return json.data;
 }
 
 export async function updateConfig(data: any): Promise<any> {
-  const res = await fetch(`${BASE_URL}/api/config`, {
+  const res = await fetch(apiUrl('/api/config'), {
     method: "PUT",
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -410,7 +437,7 @@ export interface TrialQuotaItem {
 }
 
 export async function fetchTimeline(hours = 24): Promise<TimelinePoint[]> {
-  const res = await fetch(`${BASE_URL}/api/stats/timeline?hours=${hours}`, { headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/stats/timeline?hours=${hours}`), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch timeline: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
@@ -419,7 +446,7 @@ export async function fetchTimeline(hours = 24): Promise<TimelinePoint[]> {
 // --- Providers ---
 
 export async function fetchProviders(): Promise<ProviderPresetItem[]> {
-  const res = await fetch(`${BASE_URL}/api/providers`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/providers'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch providers: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
@@ -428,7 +455,7 @@ export async function fetchProviders(): Promise<ProviderPresetItem[]> {
 // --- Client keys ---
 
 export async function fetchClientKeys(): Promise<ClientKeyItem[]> {
-  const res = await fetch(`${BASE_URL}/api/client-keys`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/client-keys'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch client keys: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
@@ -441,7 +468,7 @@ export async function createClientKey(data: {
   daily_token_budget?: number | null;
   allowed_group_ids?: string[];
 }): Promise<ClientKeyItem> {
-  const res = await fetch(`${BASE_URL}/api/client-keys`, {
+  const res = await fetch(apiUrl('/api/client-keys'), {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -455,7 +482,7 @@ export async function createClientKey(data: {
 }
 
 export async function updateClientKey(id: string, data: Partial<ClientKeyItem>): Promise<ClientKeyItem> {
-  const res = await fetch(`${BASE_URL}/api/client-keys/${id}`, {
+  const res = await fetch(apiUrl(`/api/client-keys/${id}`), {
     method: 'PUT',
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -466,12 +493,12 @@ export async function updateClientKey(id: string, data: Partial<ClientKeyItem>):
 }
 
 export async function deleteClientKey(id: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/client-keys/${id}`, { method: 'DELETE', headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/client-keys/${id}`), { method: 'DELETE', headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to delete client key: ${res.statusText}`);
 }
 
 export async function rotateClientKey(id: string): Promise<ClientKeyItem> {
-  const res = await fetch(`${BASE_URL}/api/client-keys/${id}/rotate`, { method: 'POST', headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/client-keys/${id}/rotate`), { method: 'POST', headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to rotate client key: ${res.statusText}`);
   const json = await res.json();
   return json.data;
@@ -480,14 +507,14 @@ export async function rotateClientKey(id: string): Promise<ClientKeyItem> {
 // --- Trials ---
 
 export async function fetchTrialRadar(): Promise<TrialRadar> {
-  const res = await fetch(`${BASE_URL}/api/trials/radar`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/trials/radar'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch trial radar: ${res.statusText}`);
   const json = await res.json();
   return json.data;
 }
 
 export async function fetchExpiringTrials(days = 7): Promise<ExpiringTrial[]> {
-  const res = await fetch(`${BASE_URL}/api/trials/expiring?days=${days}`, { headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/trials/expiring?days=${days}`), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch expiring trials: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
@@ -495,14 +522,14 @@ export async function fetchExpiringTrials(days = 7): Promise<ExpiringTrial[]> {
 
 export async function reseedTrials(keyId?: string): Promise<{ keys_touched: number; rows_seeded: number }> {
   const q = keyId ? `?key_id=${encodeURIComponent(keyId)}` : '';
-  const res = await fetch(`${BASE_URL}/api/trials/reseed${q}`, { method: 'POST', headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/trials/reseed${q}`), { method: 'POST', headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to reseed trials: ${res.statusText}`);
   const json = await res.json();
   return json.data;
 }
 
 export async function setTrialQuota(keyId: string, model: string, data: { kind: 'tokens' | 'calls'; limit_amount: number; expires_at?: string | null }): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/trials/${encodeURIComponent(keyId)}/${encodeURIComponent(model)}`, {
+  const res = await fetch(apiUrl(`/api/trials/${encodeURIComponent(keyId)}/${encodeURIComponent(model)}`), {
     method: 'PUT',
     headers: getHeaders(),
     body: JSON.stringify(data),
@@ -513,21 +540,21 @@ export async function setTrialQuota(keyId: string, model: string, data: { kind: 
 // --- Usage & savings ---
 
 export async function fetchUsageSummary(days = 30): Promise<UsageSummaryData> {
-  const res = await fetch(`${BASE_URL}/api/usage/summary?days=${days}`, { headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/usage/summary?days=${days}`), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch usage summary: ${res.statusText}`);
   const json = await res.json();
   return json.data;
 }
 
 export async function fetchUsageDaily(days = 30): Promise<UsageDailyPoint[]> {
-  const res = await fetch(`${BASE_URL}/api/usage/daily?days=${days}`, { headers: getHeaders() });
+  const res = await fetch(apiUrl(`/api/usage/daily?days=${days}`), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch usage daily: ${res.statusText}`);
   const json = await res.json();
   return json.data || [];
 }
 
 export async function fetchSavings(): Promise<SavingsReport> {
-  const res = await fetch(`${BASE_URL}/api/usage/savings`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/usage/savings'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch savings: ${res.statusText}`);
   const json = await res.json();
   return json.data;
@@ -536,7 +563,7 @@ export async function fetchSavings(): Promise<SavingsReport> {
 // --- Key farm sweep ---
 
 export async function sweepKeys(): Promise<SweepReport> {
-  const res = await fetch(`${BASE_URL}/api/keys/sweep`, { method: 'POST', headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/keys/sweep'), { method: 'POST', headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to sweep keys: ${res.statusText}`);
   const json = await res.json();
   return json.data;
@@ -545,7 +572,7 @@ export async function sweepKeys(): Promise<SweepReport> {
 // --- Playground (same-origin, admin-authed passthrough) ---
 
 export async function playgroundChat(body: { model: string; messages: Array<{ role: string; content: string }>; stream?: boolean }): Promise<Response> {
-  return fetch(`${BASE_URL}/api/proxy/chat/completions`, {
+  return fetch(apiUrl('/api/proxy/chat/completions'), {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ ...body, stream: body.stream ?? true }),
@@ -572,14 +599,14 @@ export interface IntakeStatus {
 }
 
 export async function fetchIntakeStatus(): Promise<IntakeStatus> {
-  const res = await fetch(`${BASE_URL}/api/keys/intake/status`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/keys/intake/status'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch intake status: ${res.statusText}`);
   const json = await res.json();
   return json.data;
 }
 
 export async function scanIntakeFolder(): Promise<IntakeReport> {
-  const res = await fetch(`${BASE_URL}/api/keys/intake/scan`, { method: 'POST', headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/keys/intake/scan'), { method: 'POST', headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to scan intake folder: ${res.statusText}`);
   const json = await res.json();
   return json.data;
@@ -599,7 +626,7 @@ export interface StudioVideoTask {
 }
 
 async function postStudio(path: string, body: unknown): Promise<any> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(apiUrl(path), {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify(body),
@@ -631,7 +658,7 @@ export async function studioSubmitVideo(body: {
 }
 
 export async function studioPollVideo(taskId: string): Promise<StudioVideoTask> {
-  const res = await fetch(`${BASE_URL}/api/proxy/videos/generations/${encodeURIComponent(taskId)}`, {
+  const res = await fetch(apiUrl(`/api/proxy/videos/generations/${encodeURIComponent(taskId)}`), {
     headers: getHeaders(),
   });
   const json = await res.json().catch(() => null);
@@ -652,7 +679,7 @@ export interface GroupsExport {
 }
 
 export async function exportGroups(): Promise<GroupsExport> {
-  const res = await fetch(`${BASE_URL}/api/groups/export`, { headers: getHeaders() });
+  const res = await fetch(apiUrl('/api/groups/export'), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to export groups: ${res.statusText}`);
   const json = await res.json();
   return json.data;
@@ -661,7 +688,7 @@ export async function exportGroups(): Promise<GroupsExport> {
 export async function importGroups(
   groups: ModelGroupItem[] | unknown[],
 ): Promise<{ created: number; updated: number; errors: string[]; total: number }> {
-  const res = await fetch(`${BASE_URL}/api/groups/import`, {
+  const res = await fetch(apiUrl('/api/groups/import'), {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ groups }),

@@ -32,10 +32,10 @@ export function AppShell({
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
       <div className="flex flex-col sm:gap-4 sm:py-4">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+        <header className="hud-header sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
           <div className="flex items-center gap-3 min-w-0">
             <Link href="/" className="flex items-center gap-2.5 shrink-0">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground font-mono text-sm font-bold text-background">
+              <span className="hud-logo flex h-8 w-8 items-center justify-center rounded-lg bg-foreground font-mono text-sm font-bold text-background">
                 α
               </span>
               <span className="hidden sm:block">
@@ -62,7 +62,7 @@ export function AppShell({
                 className={cn(
                   'whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors',
                   active
-                    ? 'bg-foreground text-background'
+                    ? 'hud-nav-active bg-foreground text-background'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
               >
