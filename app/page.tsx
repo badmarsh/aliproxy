@@ -31,10 +31,20 @@ import {
   createGroup,
   updateGroup,
   deleteGroup,
+  fetchSavings,
+  fetchTrialRadar,
+  fetchExpiringTrials,
+  fetchProviders,
+  sweepKeys,
   type ApiKeyItem,
   type ModelGroupItem,
   type StatsSummary,
   type RequestLogItem,
+  type SavingsReport,
+  type TrialRadar,
+  type ExpiringTrial,
+  type SweepReport,
+  type ProviderPresetItem,
 } from '@/lib/api-client'
 
 export default function DashboardPage() {
@@ -49,6 +59,14 @@ export default function DashboardPage() {
   const [logs, setLogs] = useState<RequestLogItem[]>([])
   const [health, setHealth] = useState<{ status: string; uptime_seconds: number; proxy_version: string } | null>(null)
   const [proxyConfig, setProxyConfig] = useState<any>(null)
+
+  // Trial Farm states
+  const [savings, setSavings] = useState<SavingsReport | null>(null)
+  const [radar, setRadar] = useState<TrialRadar | null>(null)
+  const [expiring, setExpiring] = useState<ExpiringTrial[]>([])
+  const [providers, setProviders] = useState<ProviderPresetItem[]>([])
+  const [sweeping, setSweeping] = useState(false)
+  const [sweepResult, setSweepResult] = useState<SweepReport | null>(null)
 
   // Modals & Action states
   const [keyDialogOpen, setKeyDialogOpen] = useState(false)
@@ -75,13 +93,17 @@ export default function DashboardPage() {
     setLoading(true)
     setError(null)
     try {
-      const [keysData, groupsData, statsData, logsData, healthData, configData] = await Promise.allSettled([
+      const [keysData, groupsData, statsData, logsData, healthData, configData, savingsData, radarData, expiringData, providersData] = await Promise.allSettled([
         fetchKeys(),
         fetchGroups(),
         fetchStatsSummary(),
         fetchLogs(50),
         fetchHealth(),
         fetchConfig(),
+        fetchSavings(),
+        fetchTrialRadar(),
+        fetchExpiringTrials(7),
+        fetchProviders(),
       ])
 
       if (keysData.status === 'fulfilled') setKeys(keysData.value)
@@ -90,6 +112,10 @@ export default function DashboardPage() {
       if (logsData.status === 'fulfilled') setLogs(logsData.value)
       if (healthData.status === 'fulfilled') setHealth(healthData.value)
       if (configData.status === 'fulfilled') setProxyConfig(configData.value)
+      if (savingsData.status === 'fulfilled') setSavings(savingsData.value)
+      if (radarData.status === 'fulfilled') setRadar(radarData.value)
+      if (expiringData.status === 'fulfilled') setExpiring(expiringData.value)
+      if (providersData.status === 'fulfilled') setProviders(providersData.value)
     } catch (err: any) {
       setError(err.message || 'Failed to connect to proxy server')
     } finally {
@@ -173,6 +199,21 @@ export default function DashboardPage() {
     }
   }
 
+  // Trial Farm operations
+  async function handleSweep() {
+    setSweeping(true)
+    setSweepResult(null)
+    try {
+      const report = await sweepKeys()
+      setSweepResult(report)
+      await loadData()
+    } catch (err: any) {
+      alert(`Sweep failed: ${err.message}`)
+    } finally {
+      setSweeping(false)
+    }
+  }
+
   // Group operations
   async function handleCreateGroup(e: React.FormEvent) {
     e.preventDefault()
@@ -240,7 +281,12 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:gap-4 sm:py-4">
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight">Qwen Proxy Dashboard</h1>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight leading-tight">Aliproxy 2026</h1>
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Ultimate Proxy Suite
+              </p>
+            </div>
             {health ? (
               <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -256,6 +302,33 @@ export default function DashboardPage() {
             </Button>
           </div>
         </header>
+
+        <nav className="flex items-center gap-1 overflow-x-auto px-4 sm:px-6 pb-1" aria-label="Main navigation">
+          {[
+            { href: '/', label: 'Overview', active: true },
+            { href: '/groups', label: 'Groups' },
+            { href: '/studio', label: 'Studio' },
+            { href: '/quota-radar', label: 'Quota Radar' },
+            { href: '/client-keys', label: 'Client Keys' },
+            { href: '/usage', label: 'Usage & Savings' },
+            { href: '/playground', label: 'Playground' },
+            { href: '/metrics', label: 'Metrics' },
+            { href: '/api-docs', label: 'API Docs' },
+            { href: '/settings', label: 'Settings' },
+          ].map((item) => (
+            <a
+              key={item.href}
+              href={item.href}
+              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                item.active
+                  ? 'bg-foreground text-background'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
 
         <main className="grid flex-1 items-start gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
           <Tabs defaultValue="overview" className="space-y-6" onValueChange={setActiveTab}>
@@ -322,6 +395,91 @@ export default function DashboardPage() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* TRIAL FARM ROW */}
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Card className="border-emerald-300 bg-emerald-50/50">
+                  <CardHeader className="pb-2">
+                    <CardDescription>Spend avoided (est.)</CardDescription>
+                    <CardTitle className="text-3xl text-emerald-600">
+                      {savings ? `$${savings.estimated_spend_avoided_usd.toFixed(savings.estimated_spend_avoided_usd < 10 ? 4 : 2)}` : '—'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xs text-muted-foreground">
+                      {savings ? `${savings.free_tokens.toLocaleString()} free tokens harvested` : 'start routing to save'}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Free tokens remaining</CardDescription>
+                    <CardTitle className="text-3xl">
+                      {radar?.totals
+                        ? radar.totals.free_tokens_remaining >= 1_000_000
+                          ? `${(radar.totals.free_tokens_remaining / 1_000_000).toFixed(1)}M`
+                          : radar.totals.free_tokens_remaining.toLocaleString()
+                        : '—'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xs text-muted-foreground">
+                      + {radar?.totals.free_calls_remaining ?? 0} image/video calls ·{' '}
+                      <a href="/quota-radar" className="font-semibold text-foreground underline underline-offset-2">
+                        radar →
+                      </a>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Trials expiring ≤ 7d</CardDescription>
+                    <CardTitle className={`text-3xl ${expiring.length > 0 ? 'text-amber-600' : ''}`}>
+                      {expiring.length}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xs text-muted-foreground">
+                      {expiring.length > 0 ? `${expiring.length} quotas to burn first` : 'nothing urgent 🎉'}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Key Farm Health</CardDescription>
+                    <CardTitle className="text-3xl">
+                      <span className="text-emerald-600">{activeKeysCount}</span>
+                      <span className="text-lg text-muted-foreground"> / {keys.length}</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Button variant="outline" size="sm" className="mt-1 h-7 text-xs" onClick={handleSweep} disabled={sweeping}>
+                      {sweeping ? 'Sweeping…' : 'Run sweep'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {sweepResult && (
+                <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800">
+                  Sweep complete — {sweepResult.keys_valid}/{sweepResult.keys_checked} keys valid ·{' '}
+                  {sweepResult.trials_seeded} trial rows seeded
+                  {sweepResult.keys_failed > 0 && (
+                    <span className="text-rose-700"> · {sweepResult.keys_failed} failed (see Keys tab)</span>
+                  )}
+                </div>
+              )}
+
+              {expiring.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">⏰ Burning soon:</span>
+                  {expiring.slice(0, 8).map((t, i) => (
+                    <Badge key={i} variant="outline" className="border-amber-300 bg-amber-50 font-mono text-[10px] text-amber-800">
+                      {t.alias} · {t.model} · {t.days_left}d
+                    </Badge>
+                  ))}
+                </div>
+              )}
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="lg:col-span-4">
@@ -425,10 +583,40 @@ export default function DashboardPage() {
                       </DialogHeader>
                       <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
+                          <Label htmlFor="provider">Provider</Label>
+                          <select
+                            id="provider"
+                            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                            value={providers.find((p) => p.base_url === newKeyData.base_url)?.id || ''}
+                            onChange={(e) => {
+                              const preset = providers.find((p) => p.id === e.target.value)
+                              if (preset) setNewKeyData({ ...newKeyData, base_url: preset.base_url, region: preset.region })
+                            }}
+                          >
+                            <option value="">Custom…</option>
+                            {providers.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-muted-foreground">
+                            Provider presets seed free-trial quotas automatically (Quota Radar). Need a key?{' '}
+                            <a
+                              href="https://bailian.console.alibabacloud.com/?tab=model#/api-key"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-medium underline underline-offset-2"
+                            >
+                              Open Model Studio → API Keys ↗
+                            </a>
+                          </p>
+                        </div>
+                        <div className="grid gap-2">
                           <Label htmlFor="alias">Alias / Workspace Name</Label>
                           <Input
                             id="alias"
-                            placeholder="e.g. Production Workspace"
+                            placeholder="e.g. Trial Account #1"
                             value={newKeyData.alias}
                             onChange={(e) => setNewKeyData({ ...newKeyData, alias: e.target.value })}
                             required
@@ -817,7 +1005,7 @@ export default function DashboardPage() {
 
 client = OpenAI(
     base_url="http://127.0.0.1:8080/v1",
-    api_key="qwen-proxy-local-key"
+    api_key="aliproxy-local-key"
 )
 
 response = client.chat.completions.create(
@@ -833,7 +1021,7 @@ for chunk in response:
                     <p className="font-sans font-medium text-sm text-foreground pt-2">cURL Example:</p>
                     <pre className="p-3 bg-background rounded border overflow-x-auto text-[11px]">
 {`curl -X POST http://127.0.0.1:8080/v1/chat/completions \\
-  -H "Authorization: Bearer qwen-proxy-local-key" \\
+  -H "Authorization: Bearer aliproxy-local-key" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "qwen3.7-plus",

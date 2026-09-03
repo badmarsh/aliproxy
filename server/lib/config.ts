@@ -29,7 +29,7 @@ function envInt(key: string, fallback: number): number {
   return isNaN(parsed) ? fallback : parsed;
 }
 
-const proxyApiKey = env("PROXY_API_KEY", "qwen-proxy-local-key");
+const proxyApiKey = env("PROXY_API_KEY", "aliproxy-local-key");
 
 export const config = {
   proxy: {
@@ -44,7 +44,7 @@ export const config = {
     key: env("ENCRYPTION_KEY", ""),
   },
   database: {
-    path: env("DATABASE_PATH", "./data/qwen-proxy.db"),
+    path: env("DATABASE_PATH", "./data/aliproxy.db"),
   },
   routing: {
     defaultRegion: env("DEFAULT_REGION", "ap-southeast-1"),
@@ -59,6 +59,14 @@ export const config = {
     requests: env("LOG_REQUESTS", "true") === "true",
     payload: env("LOG_PAYLOAD", "false") === "true",
     maxRequestLogCount: envInt("MAX_REQUEST_LOG_COUNT", 1000),
+  },
+  intake: {
+    dir: env("INTAKE_DIR", "./incoming"),
+    watch: env("INTAKE_WATCH", "true") === "true",
+    autoGroups: env("INTAKE_AUTO_GROUPS", "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
 } as const;
 

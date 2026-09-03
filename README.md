@@ -1,109 +1,153 @@
-# Qwen Proxy Dashboard
+# Aliproxy 2026 — Ultimate Proxy Suite
 
-A local desktop dashboard for managing DashScope/Qwen API keys, model groups, and routing — built with Next.js, shadcn/ui, and a Vercel-inspired monochrome theme.
+**Version 2026.4.0 · “Trial Farm” edition** *(successor of AliProxy v0.3 / Qwen Proxy Dashboard)*
 
-## Overview
+A local gateway + dashboard for people who collect **free-trial API keys**. DashScope hands
+every fresh account ~1M tokens per model — plus trials for image and video models. Aliproxy
+pools all of those keys behind one OpenAI-compatible endpoint, drains the free quota in the
+smartest order, and shows you exactly how much money you avoided spending.
 
-The Qwen Proxy Dashboard is the Web UI component of the Qwen Proxy system. It provides:
+```
+$ curl -s localhost:8080/api/usage/savings
+{"free_tokens": 16000146, "estimated_spend_avoided_usd": 23.84, ...}
+```
 
-- **API Key Management** — add, edit, delete, enable/disable DashScope API keys
-- **Model Groups** — create groups of upstream models with routing strategies (round-robin, least-quota, weighted, first-available)
-- **Metrics Dashboard** — request volume charts, latency distribution, live request logs
-- **Settings** — proxy server controls (start/stop), port/host config, quota refresh intervals, dark/light mode, theme picker
+## What's in the suite
 
-## Tech Stack
-
-| Layer | Technology |
+| Area | Features |
 |---|---|
-| Framework | Next.js 14 (App Router) |
-| Language | TypeScript |
-| UI Components | shadcn/ui (Radix primitives) |
-| Styling | Tailwind CSS 3.4 |
-| Charts | Recharts 2 |
-| State | currently local useState; Zustand ready for scale |
+| **Trial Farm** | Per-key × per-model free-quota tracking (tokens *and* image/video calls), auto-seeded from provider presets, decremented as traffic flows |
+| **Quota Radar** | Model × key matrix of remaining free quota; “expiring soon” alerts so you burn dying trials first |
+| **Smart routing** | Exhaustion-aware dispatch — skips keys whose trial for that model is spent; `first_available` prefers soonest-expiring quota; fails closed with `503 trial_exhausted` instead of silently burning paid quota |
+| **Multimodal** | `/v1/chat/completions` (sync + streaming), `/v1/embeddings`, `/v1/images/generations` (OpenAI shape; auto-translated to DashScope native text2image), `/v1/videos/generations` (async submit + poll) |
+| **Studio** | Visual prompt canvas — drag-and-drop prompt blocks, live compiled prompt, templates, ✨ AI enhance, image + video generation with a persistent results gallery |
+| **Client keys** | Issue your own `sk-aliproxy-…` keys with RPM limits, daily request/token budgets, and group allowlists — share the farm without sharing the master key |
+| **Savings meter** | Per-model pricing catalog × metered usage = estimated spend avoided, daily rollups, per-model/group/consumer breakdowns |
+| **Key farm tools** | Bulk import (JSON/CSV/text), one-click sweep (validate all keys + reseed trials), provider presets for DashScope (intl/cn), OpenAI, DeepSeek, OpenRouter, Groq, Mistral, Ollama, vLLM |
+| **Echo provider** | Built-in mock upstream (`echo://local`) — the entire suite works with zero real keys |
+| **Dashboard** | Next.js 14 app: Overview, Groups, Quota Radar, Client Keys, Usage & Savings, Playground, Metrics, Settings — all live, single-origin |
 
-## Project Structure
-
-```
-AliProxy/
-├── app/
-│   ├── layout.tsx          # Root layout
-│   ├── page.tsx            # Main dashboard (tabs: overview, keys, groups, metrics, settings)
-│   ├── globals.css         # CSS variables (Vercel monochrome theme) + Tailwind
-│   ├── keys/page.tsx       # Dedicated API keys CRUD page
-│   ├── groups/page.tsx     # Dedicated model groups page
-│   ├── metrics/page.tsx    # Metrics + charts + request logs
-│   └── settings/page.tsx   # Proxy controls + appearance settings
-├── components/
-│   └── ui/
-│       ├── badge.tsx
-│       ├── button.tsx
-│       ├── card.tsx
-│       ├── dialog.tsx
-│       ├── input.tsx
-│       ├── label.tsx
-│       ├── select.tsx
-│       ├── switch.tsx
-│       ├── table.tsx
-│       └── tabs.tsx
-├── lib/
-│   └── utils.ts            # cn() helper
-├── components.json          # shadcn/ui config
-├── tailwind.config.js       # Vercel monochrome theme
-├── package.json
-└── specs.md                 # Original technical spec (Slovak)
-```
-
-## Getting Started
+## Quickstart
 
 ```bash
 npm install
-npm run dev
-# Open http://localhost:3000
+
+# 1. start the proxy server (SQLite at ./data/aliproxy.db, migrations auto-run)
+npm run proxy
+
+# 2. in a second terminal — seed the Echo demo (key + 4 groups, works offline)
+npm run proxy:seed-farm
+
+# 3. start the dashboard
+npm run dev            # → http://localhost:3456
 ```
 
-## Theme
+`ENCRYPTION_KEY` is required for key storage — generate one into `.env`:
 
-The default theme is **Vercel** — a stark black-and-white monochrome palette. The theme picker in Settings also provides **Blue** and **Green** options (currently placeholder colors — wire up via CSS variable overrides to activate).
-
-Dark mode is enabled by default. Toggle via `Settings → Appearance → Dark Mode`.
-
-## Build Status
-
-```
-✓ Compiled successfully
-✓ Linting and checking validity of types
-✓ Generating static pages (8/8)
+```bash
+grep -q ENCRYPTION_KEY .env 2>/dev/null || echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 ```
 
-All pages compile and type-check cleanly. The build produces static HTML for all routes.
+### Use it
 
-## Current State
+```bash
+# chat (streaming works)
+curl http://127.0.0.1:8080/v1/chat/completions \
+  -H "Authorization: Bearer aliproxy-local-key" \
+  -d '{"model":"aliproxy-demo","messages":[{"role":"user","content":"hi"}]}'
 
-**Completed:**
-- All UI components (shadcn/ui) created and working
-- Vercel monochrome theme CSS variables configured
-- 6 routes: `/`, `/keys`, `/groups`, `/metrics`, `/settings`
-- All pages have mock data for demo purposes
-- Build passes with zero errors
+# image generation — free wanx trials, OpenAI-compatible shape
+curl http://127.0.0.1:8080/v1/images/generations \
+  -H "Authorization: Bearer aliproxy-local-key" \
+  -d '{"model":"wanx2.1-t2i-turbo","prompt":"a cat astronaut"}'
 
-**To Wire Up (backend integration):**
-- Replace mock data in all pages with real API calls to the proxy backend
-- Implement actual state management with Zustand stores
-- Add real-time WebSocket updates for live request logs and quota refreshes
-- Wire up the theme picker to actually swap CSS variables
-- Add proper error handling and loading states
-- Add form validation for API key/group creation
+# video generation — async submit, then poll
+curl -X POST http://127.0.0.1:8080/v1/videos/generations \
+  -H "Authorization: Bearer aliproxy-local-key" \
+  -d '{"model":"wan2.1-t2v-turbo","input":{"prompt":"a cat astronaut"}}'
+curl http://127.0.0.1:8080/v1/videos/generations/{task_id} -H "Authorization: Bearer aliproxy-local-key"
+```
 
-**Known Issues:**
-- Next.js 14.2.33 has a security advisory (2025-12-11); consider upgrading to 15.x
-- `recharts@2.12.7` is deprecated; the v3 migration guide is available
-- `curl` connectivity to localhost was unreliable during testing — likely a network proxy issue on this machine, not a code problem
+Point any OpenAI SDK at `base_url="http://127.0.0.1:8080/v1"` and go.
 
-## Next Steps (from specs.md Phase 1)
+## The hoarding loop
 
-1. **Key Store** — Implement the actual backend for API key storage with AES-256-GCM encryption
-2. **DashScope model fetch** — Call `/v1/models` endpoint to populate model data
-3. **HTTP proxy server** — Implement the OpenAI-compatible chat/completions endpoint with streaming
-4. **Model group config** — Wire up TOML config file reading/writing
-5. **Round-robin dispatcher** — Implement the routing logic
+1. **Add trial keys** — Dashboard → Overview → *Add New Key* (pick a provider preset; trials seed automatically), or bulk-import a CSV of harvested keys
+2. **Sweep** — validates every key, marks dead ones, tops up trial rows
+3. **Watch the Quota Radar** — every model × key cell with remaining free quota and expiry
+4. **Route** — groups map client-facing model names to upstream candidates; dispatch skips exhausted trials automatically
+5. **Share safely** — issue `sk-aliproxy-*` client keys with daily budgets so apps (or friends) can't drain the farm
+
+Full guide: [`docs/TRIAL-FARM.md`](docs/TRIAL-FARM.md).
+
+## Architecture
+
+```
+Client (OpenAI SDK / curl / dashboard Playground)
+  │  Bearer sk-aliproxy-… or master key
+  ▼
+Aliproxy server (Hono, :8080)
+  ├─ /v1/chat/completions · /v1/embeddings · /v1/images/generations · /v1/videos/generations
+  │    └─ auth → rate limit → daily budget → group allowlist → router
+  │         └─ trial-aware dispatch → upstream adapter → meter (logs · usage · trials)
+  ├─ /api/*  admin API (keys, groups, client-keys, trials, usage, sweep, playground)
+  └─ SQLite (WAL): api_keys · model_groups · client_keys · trial_quotas · usage_daily · request_logs · …
+
+Dashboard (Next.js 14, :3456) — rewrites /api/* to the server, single-origin
+```
+
+| Layer | Technology |
+|---|---|
+| Proxy server | Hono 4 + @hono/node-server, TypeScript |
+| Storage | SQLite (better-sqlite3), AES-256-GCM (scrypt-derived) secret encryption |
+| Dashboard | Next.js 14 App Router, shadcn/ui, Tailwind, Recharts |
+| Tests | Vitest — 46 tests across stores, dispatch, auth, budgets, multimodal, analytics |
+
+## Configuration (`.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENCRYPTION_KEY` | — *(required)* | Master passphrase for secret encryption |
+| `PROXY_PORT` / `PROXY_HOST` | `8080` / `127.0.0.1` | Proxy listen address |
+| `PROXY_API_KEY` | `aliproxy-local-key` | Master key for `/v1` + `/api` |
+| `DATABASE_PATH` | `./data/aliproxy.db` | SQLite location |
+| `REQUEST_TIMEOUT_SECONDS` / `STREAM_IDLE_TIMEOUT_SECONDS` | `120` / `60` | Timeouts |
+| `DEFAULT_REGION` | `ap-southeast-1` | Default DashScope region |
+| `UNKNOWN_MODEL_POLICY` | `reject` | `reject` or `default_group` (+ `DEFAULT_GROUP`) |
+| `TRIAL_PRESETS_PATH` | — | JSON override for free-trial presets |
+| `INTAKE_DIR` | `./incoming` | Watched folder — drop key files (txt/CSV/JSON) for auto-import |
+| `INTAKE_WATCH` | `true` | Disable the intake folder watcher |
+| `INTAKE_AUTO_GROUPS` | — | Comma-separated group ids to auto-attach imported keys to |
+| `PRICING_FALLBACK_PROMPT` / `PRICING_FALLBACK_COMPLETION` | `0.5` / `1.5` | USD per 1M tokens for uncatalogued models |
+
+> Trial preset amounts are *estimates* of each provider's current promotion (they change
+> often). Correct any cell from the dashboard or via `PUT /api/trials/:keyId/:model`.
+
+### Upgrading from v0.3 (Qwen Proxy Dashboard)
+
+- Database default moved to `./data/aliproxy.db` — set `DATABASE_PATH` to the old file to keep data (migrations run automatically).
+- Default API key is now `aliproxy-local-key` (set `PROXY_API_KEY` to keep the old one).
+- Response headers renamed `X-Qwen-Proxy-*` → `X-Aliproxy-*`.
+
+## Scripts
+
+| Command | Description |
+|---|---|
+| `npm run dev` / `build` / `start` | Dashboard |
+| `npm run proxy` | Proxy server (watch mode) |
+| `npm run proxy:seed-farm` | Seed Echo demo key + groups |
+| `npm run farm:status` | Terminal snapshot: keys, free quota, savings, burn-first |
+| `npm run proxy:seed` | Seed curated DashScope model groups |
+| `npm run proxy:import` | Interactive key import |
+| `npm run proxy:create-groups` | Create custom qwen-max/plus/coder/flash groups |
+| `npm test` | Vitest suite (46 tests) |
+
+## Known limitations
+
+- Trial quotas are decremented locally (providers don't expose remaining trial tokens); sweep + manual override keep them honest.
+- Rate limiter and video-task registry are process-local (single-node product).
+- Next.js 14.2.x has a security advisory (2025-12-11); a 15.x upgrade is planned.
+
+## License
+
+MIT — hoard responsibly, and read your providers' ToS.

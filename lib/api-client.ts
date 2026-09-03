@@ -1,15 +1,42 @@
 /**
- * API client for Qwen Proxy Dashboard.
- * Connects to the local Qwen Proxy Admin & Health API.
+ * API client for Aliproxy 2026 — Ultimate Proxy Suite (Trial Farm edition).
+ * Talks same-origin to the Aliproxy server (Next.js rewrites /api/* to it).
+ * Set NEXT_PUBLIC_PROXY_API_URL for a split deployment instead.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_PROXY_API_URL || "http://127.0.0.1:8080";
-const API_KEY = process.env.NEXT_PUBLIC_PROXY_API_KEY || "qwen-proxy-local-key";
+const BASE_URL = process.env.NEXT_PUBLIC_PROXY_API_URL || "";
+const API_KEY = process.env.NEXT_PUBLIC_PROXY_API_KEY || "aliproxy-local-key";
+
+const ADMIN_KEY_STORAGE = 'aliproxy.adminKey';
+
+/**
+ * Admin key used for dashboard calls. Runtime override lives in localStorage
+ * (set via Settings → Security) so a real deployment can change the master
+ * key without rebuilding the dashboard. Falls back to the build-time default.
+ */
+export function getAdminKey(): string {
+  if (typeof window !== 'undefined') {
+    const stored = window.localStorage.getItem(ADMIN_KEY_STORAGE);
+    if (stored) return stored;
+  }
+  return API_KEY;
+}
+
+export function setAdminKey(key: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (key) window.localStorage.setItem(ADMIN_KEY_STORAGE, key);
+  else window.localStorage.removeItem(ADMIN_KEY_STORAGE);
+}
+
+export function hasAdminKeyOverride(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(ADMIN_KEY_STORAGE) !== null;
+}
 
 function getHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${API_KEY}`,
+    Authorization: `Bearer ${getAdminKey()}`,
     ...customHeaders,
   };
 }
@@ -37,7 +64,7 @@ export interface ApiKeyItem {
 export interface CandidateModelItem {
   upstream_model_id: string;
   priority: number;
-  capabilities: ("chat" | "streaming" | "embeddings" | "vision" | "tools")[];
+  capabilities: ("chat" | "streaming" | "embeddings" | "vision" | "tools" | "images" | "video")[];
 }
 
 export interface ModelGroupItem {
@@ -58,6 +85,8 @@ export interface StatsSummary {
   total_requests: number;
   requests_last_hour: number;
   avg_latency_ms: number;
+  p50_latency_ms?: number;
+  p95_latency_ms?: number;
   groups: Record<string, { requests: number; avg_latency_ms: number }>;
 }
 
@@ -215,10 +244,20 @@ export async function fetchStatsTimeline(hours: number = 24): Promise<TimelinePo
   return json.data || [];
 }
 
-export async function fetchLogs(limit: number = 50, group?: string): Promise<RequestLogItem[]> {
+export interface LogFilters {
+  group?: string;
+  model?: string;
+  status?: 'ok' | 'error';
+  mode?: 'stream' | 'sync';
+}
+
+export async function fetchLogs(limit: number = 50, filters: LogFilters = {}): Promise<RequestLogItem[]> {
   const url = new URL(`${BASE_URL}/api/logs`);
   url.searchParams.set("limit", String(limit));
-  if (group) url.searchParams.set("group", group);
+  if (filters.group) url.searchParams.set("group", filters.group);
+  if (filters.model) url.searchParams.set("model", filters.model);
+  if (filters.status) url.searchParams.set("status", filters.status);
+  if (filters.mode) url.searchParams.set("mode", filters.mode);
 
   const res = await fetch(url.toString(), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch logs: ${res.statusText}`);
@@ -247,4 +286,390 @@ export async function updateConfig(data: any): Promise<any> {
   });
   if (!res.ok) throw new Error(`Failed to update config: ${res.statusText}`);
   return await res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Trial Farm — client keys, trials, usage, providers, sweep, playground
+// ---------------------------------------------------------------------------
+
+export interface ClientKeyItem {
+  id: string;
+  name: string;
+  key_hash: string;
+  key_prefix: string;
+  enabled: boolean;
+  rpm_limit: number | null;
+  daily_request_limit: number | null;
+  daily_token_budget: number | null;
+  allowed_group_ids: string[];
+  total_requests: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+  plaintext?: string; // only present at creation / rotation
+  today_usage?: { requests: number; errors: number; prompt_tokens: number; completion_tokens: number; cost_usd: number };
+}
+
+export interface ProviderPresetItem {
+  id: string;
+  label: string;
+  base_url: string;
+  region: string;
+  key_hint: string;
+  built_in?: boolean;
+}
+
+export interface TrialRadarKeyCell {
+  key_id: string;
+  alias: string;
+  key_status: string;
+  kind: 'tokens' | 'calls';
+  limit_amount: number;
+  used: number;
+  remaining: number;
+  pct_used: number;
+  expires_at: string | null;
+  exhausted: boolean;
+}
+
+export interface TrialRadarModelRow {
+  model: string;
+  kind: 'tokens' | 'calls';
+  keys: TrialRadarKeyCell[];
+  total_remaining: number;
+  total_limit: number;
+  live_keys: number;
+}
+
+export interface TrialRadar {
+  generated_at: string;
+  models: TrialRadarModelRow[];
+  totals: {
+    models_tracked: number;
+    keys_tracked: number;
+    free_tokens_remaining: number;
+    free_calls_remaining: number;
+    exhausted_rows: number;
+    expiring_rows: number;
+  };
+}
+
+export interface ExpiringTrial {
+  key_id: string;
+  alias: string;
+  model: string;
+  expires_at: string;
+  days_left: number;
+}
+
+export interface UsageSummaryData {
+  range_days: number;
+  totals: { requests: number; errors: number; prompt_tokens: number; completion_tokens: number; cost_usd: number };
+  by_model: Array<{ model: string; requests: number; tokens: number; cost_usd: number }>;
+  by_group: Array<{ group_id: string; requests: number; tokens: number; cost_usd: number }>;
+  by_client: Array<{ client_key_id: string; name: string; requests: number; errors: number; tokens: number; cost_usd: number }>;
+}
+
+export interface UsageDailyPoint {
+  date: string;
+  requests: number;
+  errors: number;
+  tokens: number;
+  cost_usd: number;
+}
+
+export interface SavingsReport {
+  free_tokens: number;
+  free_calls: number;
+  estimated_spend_avoided_usd: number;
+  all_time: { requests: number; errors: number; prompt_tokens: number; completion_tokens: number; cost_usd: number };
+}
+
+export interface SweepReport {
+  swept_at: string;
+  keys_checked: number;
+  keys_valid: number;
+  keys_failed: number;
+  trials_seeded: number;
+  keys: Array<{ id: string; alias: string; ok: boolean; status: string; latency_ms: number; models: number; error?: string }>;
+}
+
+export interface TrialQuotaItem {
+  key_id: string;
+  alias: string;
+  model: string;
+  kind: 'tokens' | 'calls';
+  limit_amount: number;
+  used: number;
+  remaining: number;
+  pct_used: number;
+  expires_at: string | null;
+  exhausted: boolean;
+}
+
+export async function fetchTimeline(hours = 24): Promise<TimelinePoint[]> {
+  const res = await fetch(`${BASE_URL}/api/stats/timeline?hours=${hours}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch timeline: ${res.statusText}`);
+  const json = await res.json();
+  return json.data || [];
+}
+
+// --- Providers ---
+
+export async function fetchProviders(): Promise<ProviderPresetItem[]> {
+  const res = await fetch(`${BASE_URL}/api/providers`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch providers: ${res.statusText}`);
+  const json = await res.json();
+  return json.data || [];
+}
+
+// --- Client keys ---
+
+export async function fetchClientKeys(): Promise<ClientKeyItem[]> {
+  const res = await fetch(`${BASE_URL}/api/client-keys`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch client keys: ${res.statusText}`);
+  const json = await res.json();
+  return json.data || [];
+}
+
+export async function createClientKey(data: {
+  name: string;
+  rpm_limit?: number | null;
+  daily_request_limit?: number | null;
+  daily_token_budget?: number | null;
+  allowed_group_ids?: string[];
+}): Promise<ClientKeyItem> {
+  const res = await fetch(`${BASE_URL}/api/client-keys`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(error.error || 'Failed to create client key');
+  }
+  const json = await res.json();
+  return json.data;
+}
+
+export async function updateClientKey(id: string, data: Partial<ClientKeyItem>): Promise<ClientKeyItem> {
+  const res = await fetch(`${BASE_URL}/api/client-keys/${id}`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to update client key: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function deleteClientKey(id: string): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/client-keys/${id}`, { method: 'DELETE', headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to delete client key: ${res.statusText}`);
+}
+
+export async function rotateClientKey(id: string): Promise<ClientKeyItem> {
+  const res = await fetch(`${BASE_URL}/api/client-keys/${id}/rotate`, { method: 'POST', headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to rotate client key: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+// --- Trials ---
+
+export async function fetchTrialRadar(): Promise<TrialRadar> {
+  const res = await fetch(`${BASE_URL}/api/trials/radar`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch trial radar: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function fetchExpiringTrials(days = 7): Promise<ExpiringTrial[]> {
+  const res = await fetch(`${BASE_URL}/api/trials/expiring?days=${days}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch expiring trials: ${res.statusText}`);
+  const json = await res.json();
+  return json.data || [];
+}
+
+export async function reseedTrials(keyId?: string): Promise<{ keys_touched: number; rows_seeded: number }> {
+  const q = keyId ? `?key_id=${encodeURIComponent(keyId)}` : '';
+  const res = await fetch(`${BASE_URL}/api/trials/reseed${q}`, { method: 'POST', headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to reseed trials: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function setTrialQuota(keyId: string, model: string, data: { kind: 'tokens' | 'calls'; limit_amount: number; expires_at?: string | null }): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/trials/${encodeURIComponent(keyId)}/${encodeURIComponent(model)}`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to set trial quota: ${res.statusText}`);
+}
+
+// --- Usage & savings ---
+
+export async function fetchUsageSummary(days = 30): Promise<UsageSummaryData> {
+  const res = await fetch(`${BASE_URL}/api/usage/summary?days=${days}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch usage summary: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function fetchUsageDaily(days = 30): Promise<UsageDailyPoint[]> {
+  const res = await fetch(`${BASE_URL}/api/usage/daily?days=${days}`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch usage daily: ${res.statusText}`);
+  const json = await res.json();
+  return json.data || [];
+}
+
+export async function fetchSavings(): Promise<SavingsReport> {
+  const res = await fetch(`${BASE_URL}/api/usage/savings`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch savings: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+// --- Key farm sweep ---
+
+export async function sweepKeys(): Promise<SweepReport> {
+  const res = await fetch(`${BASE_URL}/api/keys/sweep`, { method: 'POST', headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to sweep keys: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+// --- Playground (same-origin, admin-authed passthrough) ---
+
+export async function playgroundChat(body: { model: string; messages: Array<{ role: string; content: string }>; stream?: boolean }): Promise<Response> {
+  return fetch(`${BASE_URL}/api/proxy/chat/completions`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ ...body, stream: body.stream ?? true }),
+  });
+}
+
+// --- Intake folder ---
+
+export interface IntakeReport {
+  scanned_at: string;
+  dir: string;
+  files_handled: number;
+  keys_imported: number;
+  keys_skipped: number;
+  errors: string[];
+  processed_files: string[];
+}
+
+export interface IntakeStatus {
+  dir: string;
+  watching: boolean;
+  auto_groups: string[];
+  last_report: IntakeReport | null;
+}
+
+export async function fetchIntakeStatus(): Promise<IntakeStatus> {
+  const res = await fetch(`${BASE_URL}/api/keys/intake/status`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to fetch intake status: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function scanIntakeFolder(): Promise<IntakeReport> {
+  const res = await fetch(`${BASE_URL}/api/keys/intake/scan`, { method: 'POST', headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to scan intake folder: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+// --- Studio (media generation canvas) ---
+
+export interface StudioImageResult {
+  created: number;
+  data: Array<{ url?: string; b64_json?: string; revised_prompt?: string }>;
+}
+
+export interface StudioVideoTask {
+  output: { task_id: string; task_status: string; video_url?: string; message?: string };
+  request_id?: string;
+  usage?: Record<string, unknown>;
+}
+
+async function postStudio(path: string, body: unknown): Promise<any> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = json?.error?.message || json?.error || `Studio request failed (${res.status})`;
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+  }
+  return json;
+}
+
+export async function studioGenerateImage(body: {
+  model: string;
+  prompt: string;
+  negative_prompt?: string;
+  n?: number;
+  size?: string;
+}): Promise<StudioImageResult> {
+  return postStudio('/api/proxy/images/generations', body);
+}
+
+export async function studioSubmitVideo(body: {
+  model: string;
+  input: { prompt: string; negative_prompt?: string };
+  parameters?: Record<string, unknown>;
+}): Promise<StudioVideoTask> {
+  return postStudio('/api/proxy/videos/generations', body);
+}
+
+export async function studioPollVideo(taskId: string): Promise<StudioVideoTask> {
+  const res = await fetch(`${BASE_URL}/api/proxy/videos/generations/${encodeURIComponent(taskId)}`, {
+    headers: getHeaders(),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = json?.error?.message || `Poll failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return json;
+}
+
+// --- Groups backup / restore + security ---
+
+export interface GroupsExport {
+  exported_at: string;
+  version: number;
+  count: number;
+  groups: ModelGroupItem[];
+}
+
+export async function exportGroups(): Promise<GroupsExport> {
+  const res = await fetch(`${BASE_URL}/api/groups/export`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to export groups: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function importGroups(
+  groups: ModelGroupItem[] | unknown[],
+): Promise<{ created: number; updated: number; errors: string[]; total: number }> {
+  const res = await fetch(`${BASE_URL}/api/groups/import`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ groups }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(error.error || 'Failed to import groups');
+  }
+  const json = await res.json();
+  return json.data;
 }
