@@ -12,6 +12,11 @@ import {
   reseedTrials,
   fetchIntakeStatus,
   scanIntakeFolder,
+  exportGroups,
+  importGroups,
+  getAdminKey,
+  setAdminKey,
+  hasAdminKeyOverride,
   type ProviderPresetItem,
   type IntakeStatus,
 } from '@/lib/api-client'
@@ -24,6 +29,9 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [adminKeyInput, setAdminKeyInput] = useState('')
+  const [keyOverridden, setKeyOverridden] = useState(false)
+  const [backupBusy, setBackupBusy] = useState(false)
 
   async function load() {
     try {
@@ -45,7 +53,52 @@ export default function SettingsPage() {
 
   useEffect(() => {
     load()
+    setKeyOverridden(hasAdminKeyOverride())
   }, [])
+
+  function saveAdminKey() {
+    setAdminKey(adminKeyInput.trim() || null)
+    setKeyOverridden(hasAdminKeyOverride())
+    setAdminKeyInput('')
+    setNotice(adminKeyInput.trim() ? 'Admin key saved — dashboard now uses it for every call.' : 'Admin key override cleared — using build-time default.')
+  }
+
+  async function handleExport() {
+    setBackupBusy(true)
+    setNotice(null)
+    try {
+      const data = await exportGroups()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `aliproxy-groups-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      setNotice(`Exported ${data.count} groups.`)
+    } catch (err: any) {
+      setNotice(`Export failed: ${err.message}`)
+    } finally {
+      setBackupBusy(false)
+    }
+  }
+
+  async function handleImportFile(file: File) {
+    setBackupBusy(true)
+    setNotice(null)
+    try {
+      const parsed = JSON.parse(await file.text())
+      const groups = Array.isArray(parsed) ? parsed : parsed.groups
+      if (!Array.isArray(groups)) throw new Error('No groups array found in file')
+      const result = await importGroups(groups)
+      setNotice(`Imported groups: ${result.created} created, ${result.updated} updated${result.errors.length ? `, ${result.errors.length} errors` : ''}.`)
+      await load()
+    } catch (err: any) {
+      setNotice(`Import failed: ${err.message}`)
+    } finally {
+      setBackupBusy(false)
+    }
+  }
 
   async function handleReseed() {
     setBusy(true)
@@ -140,6 +193,74 @@ curl -X POST http://127.0.0.1:8080/v1/videos/generations \\
   -d '{"model":"wan2.1-t2v-turbo","input":{"prompt":"a cat astronaut"}}'
 # → then GET /v1/videos/generations/{task_id}`}
             </pre>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Security</CardTitle>
+            <CardDescription>
+              Dashboard API key — stored in this browser only (localStorage). Override when your server uses a
+              different master key than the build-time default.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="password"
+                value={adminKeyInput}
+                onChange={(e) => setAdminKeyInput(e.target.value)}
+                placeholder={keyOverridden ? 'override active — enter to replace' : 'default key in use'}
+                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
+              />
+              <Button size="sm" onClick={saveAdminKey}>
+                Save key
+              </Button>
+              {keyOverridden && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAdminKey(null)
+                    setKeyOverridden(false)
+                    setNotice('Admin key override cleared.')
+                  }}
+                >
+                  Clear override
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {keyOverridden
+                ? '✓ Using a custom admin key from this browser.'
+                : 'Using the build-time default key. Set PROXY_API_KEY on the server and enter it here for real deployments.'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Backup &amp; restore groups</CardTitle>
+            <CardDescription>Model groups live in SQLite — export a JSON snapshot or restore one</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={backupBusy}>
+              ⬇ Export groups JSON
+            </Button>
+            <label className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent">
+              ⬆ Import snapshot
+              <input
+                type="file"
+                accept="application/json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void handleImportFile(f)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+            <span className="text-xs text-muted-foreground">import upserts by group id — safe to re-run</span>
           </CardContent>
         </Card>
 

@@ -33,6 +33,9 @@ export default function MetricsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hours, setHours] = useState(24)
+  const [modelFilter, setModelFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'error'>('all')
+  const [modeFilter, setModeFilter] = useState<'all' | 'stream' | 'sync'>('all')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -40,7 +43,11 @@ export default function MetricsPage() {
     try {
       const [s, l, t, h] = await Promise.all([
         fetchStatsSummary(),
-        fetchLogs(100),
+        fetchLogs(150, {
+          model: modelFilter.trim() || undefined,
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          mode: modeFilter === 'all' ? undefined : modeFilter,
+        }),
         fetchTimeline(hours),
         fetchHealth(),
       ])
@@ -53,7 +60,7 @@ export default function MetricsPage() {
     } finally {
       setLoading(false)
     }
-  }, [hours])
+  }, [hours, modelFilter, statusFilter, modeFilter])
 
   useEffect(() => {
     load()
@@ -104,7 +111,20 @@ export default function MetricsPage() {
             <CardTitle className="text-3xl">{stats?.avg_latency_ms ? `${stats.avg_latency_ms} ms` : '—'}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xs text-muted-foreground">all successful requests</div>
+            <div className="text-xs text-muted-foreground">
+              p50 {stats?.p50_latency_ms ?? 0} ms · p95 {stats?.p95_latency_ms ?? 0} ms
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={stats && (stats.p95_latency_ms ?? 0) > 3000 ? 'border-amber-300' : ''}>
+          <CardHeader className="pb-2">
+            <CardDescription>Latency p95</CardDescription>
+            <CardTitle className={`text-3xl ${stats && (stats.p95_latency_ms ?? 0) > 3000 ? 'text-amber-600' : ''}`}>
+              {stats?.p95_latency_ms ? `${stats.p95_latency_ms} ms` : '—'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">worst 5% of recent 1k requests</div>
           </CardContent>
         </Card>
         <Card>
@@ -162,9 +182,37 @@ export default function MetricsPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Request log</CardTitle>
-          <CardDescription>Live audit of everything the farm routed</CardDescription>
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+          <div>
+            <CardTitle className="text-base">Request log</CardTitle>
+            <CardDescription>Live audit of everything the farm routed</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input
+              value={modelFilter}
+              onChange={(e) => setModelFilter(e.target.value)}
+              placeholder="filter model…"
+              className="h-8 w-36 rounded-md border border-input bg-background px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            >
+              <option value="all">all statuses</option>
+              <option value="ok">ok only</option>
+              <option value="error">errors only</option>
+            </select>
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value as any)}
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            >
+              <option value="all">all modes</option>
+              <option value="stream">stream</option>
+              <option value="sync">sync</option>
+            </select>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">

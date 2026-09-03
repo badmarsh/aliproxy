@@ -7,10 +7,36 @@
 const BASE_URL = process.env.NEXT_PUBLIC_PROXY_API_URL || "";
 const API_KEY = process.env.NEXT_PUBLIC_PROXY_API_KEY || "aliproxy-local-key";
 
+const ADMIN_KEY_STORAGE = 'aliproxy.adminKey';
+
+/**
+ * Admin key used for dashboard calls. Runtime override lives in localStorage
+ * (set via Settings → Security) so a real deployment can change the master
+ * key without rebuilding the dashboard. Falls back to the build-time default.
+ */
+export function getAdminKey(): string {
+  if (typeof window !== 'undefined') {
+    const stored = window.localStorage.getItem(ADMIN_KEY_STORAGE);
+    if (stored) return stored;
+  }
+  return API_KEY;
+}
+
+export function setAdminKey(key: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (key) window.localStorage.setItem(ADMIN_KEY_STORAGE, key);
+  else window.localStorage.removeItem(ADMIN_KEY_STORAGE);
+}
+
+export function hasAdminKeyOverride(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(ADMIN_KEY_STORAGE) !== null;
+}
+
 function getHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${API_KEY}`,
+    Authorization: `Bearer ${getAdminKey()}`,
     ...customHeaders,
   };
 }
@@ -59,6 +85,8 @@ export interface StatsSummary {
   total_requests: number;
   requests_last_hour: number;
   avg_latency_ms: number;
+  p50_latency_ms?: number;
+  p95_latency_ms?: number;
   groups: Record<string, { requests: number; avg_latency_ms: number }>;
 }
 
@@ -216,10 +244,20 @@ export async function fetchStatsTimeline(hours: number = 24): Promise<TimelinePo
   return json.data || [];
 }
 
-export async function fetchLogs(limit: number = 50, group?: string): Promise<RequestLogItem[]> {
+export interface LogFilters {
+  group?: string;
+  model?: string;
+  status?: 'ok' | 'error';
+  mode?: 'stream' | 'sync';
+}
+
+export async function fetchLogs(limit: number = 50, filters: LogFilters = {}): Promise<RequestLogItem[]> {
   const url = new URL(`${BASE_URL}/api/logs`);
   url.searchParams.set("limit", String(limit));
-  if (group) url.searchParams.set("group", group);
+  if (filters.group) url.searchParams.set("group", filters.group);
+  if (filters.model) url.searchParams.set("model", filters.model);
+  if (filters.status) url.searchParams.set("status", filters.status);
+  if (filters.mode) url.searchParams.set("mode", filters.mode);
 
   const res = await fetch(url.toString(), { headers: getHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch logs: ${res.statusText}`);
@@ -602,4 +640,36 @@ export async function studioPollVideo(taskId: string): Promise<StudioVideoTask> 
     throw new Error(msg);
   }
   return json;
+}
+
+// --- Groups backup / restore + security ---
+
+export interface GroupsExport {
+  exported_at: string;
+  version: number;
+  count: number;
+  groups: ModelGroupItem[];
+}
+
+export async function exportGroups(): Promise<GroupsExport> {
+  const res = await fetch(`${BASE_URL}/api/groups/export`, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`Failed to export groups: ${res.statusText}`);
+  const json = await res.json();
+  return json.data;
+}
+
+export async function importGroups(
+  groups: ModelGroupItem[] | unknown[],
+): Promise<{ created: number; updated: number; errors: string[]; total: number }> {
+  const res = await fetch(`${BASE_URL}/api/groups/import`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ groups }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(error.error || 'Failed to import groups');
+  }
+  const json = await res.json();
+  return json.data;
 }

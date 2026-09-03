@@ -4,6 +4,29 @@ Calendar versioning since 2026 (`<year>.<release>.<patch>`). Highlights only; se
 
 ---
 
+## 2026.7.0 — “Perfection pass” (2026-09-03)
+
+Gap analysis + execution of `docs/MEGAPROMPT.md`:
+
+- **Editable Quota Radar**: correct any trial cell inline (kind / limit / expiry),
+  show-exhausted filter, expiring-first sort. Presets are estimates; now the radar
+  can't drift from reality.
+- **Metrics that answer “was it slow?”**: p50/p95 latency in stats (recent 1k requests),
+  log filters by model / status class / stream-vs-sync (`GET /api/logs?model&status&mode`)
+  with matching Metrics-page controls.
+- **Studio ✨ Enhance**: AI co-writer — expands the compiled prompt into canvas blocks via
+  any chat-capable group (JSON-structured instruction, graceful line-fallback for mock
+  upstreams).
+- **Groups backup / restore**: `GET /api/groups/export`, `POST /api/groups/import`
+  (upsert) + Settings export/import buttons. The farm is no longer a single SQLite
+  accident away from loss.
+- **Runtime admin key**: Settings → Security stores the dashboard API key in
+  localStorage — real deployments can change the master key without a rebuild.
+- **`npm run farm:status`**: terminal snapshot — keys by status, free-token/call totals,
+  richest pools, savings meter, burn-first list.
+- **`/api-docs` page**: every endpoint with click-to-copy curl (uses your current key).
+- **CI**: GitHub Actions — type-check, tests, build on every push/PR.
+
 ## 2026.6.0 (2026-09-03)
 
 - **Studio — media prompt canvas**: block-based prompt composition (subject / style /

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   fetchGroups,
+  playgroundChat,
   studioGenerateImage,
   studioSubmitVideo,
   studioPollVideo,
@@ -231,6 +232,7 @@ export default function StudioPage() {
 
   const [gallery, setGallery] = useState<GalleryItem[]>([])
   const [generating, setGenerating] = useState(false)
+  const [enhancing, setEnhancing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
 
@@ -283,6 +285,7 @@ export default function StudioPage() {
 
   const imageGroups = groups.filter((g) => g.candidates.some((c) => c.capabilities.includes('images')))
   const videoGroups = groups.filter((g) => g.candidates.some((c) => c.capabilities.includes('video')))
+  const chatGroups = groups.filter((g) => g.candidates.some((c) => c.capabilities.includes('chat')))
   const prompt = compilePrompt(blocks)
 
   // --- canvas operations ---
@@ -331,6 +334,70 @@ export default function StudioPage() {
       { id: uid(), category: 'camera', text: pick(LIBRARY.camera), enabled: true },
       { id: uid(), category: 'mood', text: pick(LIBRARY.mood), enabled: true },
     ])
+  }
+
+  // --- AI prompt enhancement (uses any chat-capable group on the farm) ---
+
+  const VALID_CATS = new Set(CATEGORIES.map((c) => c.id))
+
+  function parseEnhancedBlocks(content: string): Array<{ category: CategoryId; text: string }> {
+    const jsonMatch = content.match(/\[[\s\S]*\]/)
+    if (jsonMatch) {
+      try {
+        const arr = JSON.parse(jsonMatch[0])
+        const out: Array<{ category: CategoryId; text: string }> = []
+        for (const item of arr) {
+          if (item && typeof item.text === 'string' && item.text.trim()) {
+            out.push({ category: VALID_CATS.has(item.category) ? item.category : 'custom', text: item.text.trim() })
+          }
+        }
+        if (out.length > 0) return out.slice(0, 8)
+      } catch {
+        // fall through to line parsing
+      }
+    }
+    // Fallback (e.g. Echo mock): meaningful lines become custom blocks
+    return content
+      .split('\n')
+      .map((l) => l.replace(/^[-*\d.)\s]+/, '').trim())
+      .filter((l) => l.length > 3)
+      .slice(0, 6)
+      .map((text) => ({ category: 'custom' as CategoryId, text }))
+  }
+
+  async function enhancePrompt() {
+    if (enhancing || !prompt.trim()) return
+    const model = chatGroups[0]?.id
+    if (!model) {
+      setError('No chat-capable group available for prompt enhancement — add one (e.g. aliproxy-demo).')
+      return
+    }
+    setEnhancing(true)
+    setError(null)
+    try {
+      const res = await playgroundChat({
+        model,
+        stream: false,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a prompt engineer for an AI image/video generation canvas. Expand the user\'s idea into vivid, concrete prompt blocks. Respond ONLY with a JSON array (no markdown fences, no prose) of 5-7 objects, each {"category":"subject|style|lighting|camera|mood|quality","text":"..."}. Categories must be exactly as listed.',
+          },
+          { role: 'user', content: `Idea to expand: ${prompt}${negative ? `\nAvoid: ${negative}` : ''}` },
+        ],
+      })
+      if (!res.ok) throw new Error(`Enhance failed (${res.status})`)
+      const body = await res.json()
+      const content: string = body?.choices?.[0]?.message?.content || ''
+      const parsed = parseEnhancedBlocks(content)
+      if (parsed.length === 0) throw new Error('Model returned nothing usable — try again or edit manually.')
+      setBlocks(parsed.map((b) => ({ ...b, id: uid(), enabled: true })))
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setEnhancing(false)
+    }
   }
 
   // --- generation ---
@@ -539,6 +606,16 @@ export default function StudioPage() {
               </select>
               <Button variant="outline" size="sm" className="h-8 text-xs" onClick={surprise}>
                 🎲 Surprise me
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => void enhancePrompt()}
+                disabled={enhancing || !prompt.trim() || chatGroups.length === 0}
+                title={chatGroups.length === 0 ? 'Needs a chat-capable group' : `Expand via ${chatGroups[0].id}`}
+              >
+                {enhancing ? '✨ Enhancing…' : '✨ Enhance'}
               </Button>
               <Button
                 variant="ghost"

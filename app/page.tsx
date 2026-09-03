@@ -313,6 +313,7 @@ export default function DashboardPage() {
             { href: '/usage', label: 'Usage & Savings' },
             { href: '/playground', label: 'Playground' },
             { href: '/metrics', label: 'Metrics' },
+            { href: '/api-docs', label: 'API Docs' },
             { href: '/settings', label: 'Settings' },
           ].map((item) => (
             <a

@@ -63,27 +63,49 @@ export function logRequest(entry: LogEntry): void {
   }
 }
 
-export function getRecentLogs(limit: number = 50, groupId?: string): RequestLog[] {
+export function getRecentLogs(
+  limit: number = 50,
+  groupId?: string,
+  model?: string,
+  status?: "ok" | "error",
+  streaming?: boolean,
+): RequestLog[] {
   const db = getDb();
-  let query = "SELECT * FROM request_logs";
+  const where: string[] = [];
   const params: unknown[] = [];
 
   if (groupId) {
-    query += " WHERE resolved_group_id = ?";
+    where.push("resolved_group_id = ?");
     params.push(groupId);
   }
+  if (model) {
+    where.push("requested_model LIKE ?");
+    params.push(`%${model}%`);
+  }
+  if (status === "ok") where.push("status_code < 400");
+  if (status === "error") where.push("status_code >= 400");
+  if (streaming === true) where.push("streaming = 1");
+  if (streaming === false) where.push("streaming = 0");
 
-  query += " ORDER BY timestamp DESC LIMIT ?";
+  const query = `SELECT * FROM request_logs${where.length ? " WHERE " + where.join(" AND ") : ""} ORDER BY timestamp DESC LIMIT ?`;
   params.push(limit);
 
   const rows = db.prepare(query).all(...params) as any[];
   return rows.map(mapRowToLog);
 }
 
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[idx];
+}
+
 export function getStats(): {
   total_requests: number;
   requests_last_hour: number;
   avg_latency_ms: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
   groups: Record<string, { requests: number; avg_latency_ms: number }>;
 } {
   const db = getDb();
@@ -97,6 +119,11 @@ export function getStats(): {
   const avgLatency = (db
     .prepare("SELECT AVG(latency_ms) as avg FROM request_logs")
     .get() as any).avg || 0;
+
+  // p50/p95 over the most recent 1000 requests (in JS — SQLite lacks percentile_cont)
+  const recent = (
+    db.prepare("SELECT latency_ms FROM request_logs ORDER BY timestamp DESC LIMIT 1000").all() as any[]
+  ).map((r) => r.latency_ms as number).sort((a, b) => a - b);
 
   const groupStats = db
     .prepare(`
@@ -119,6 +146,8 @@ export function getStats(): {
     total_requests: total,
     requests_last_hour: lastHour,
     avg_latency_ms: Math.round(avgLatency),
+    p50_latency_ms: percentile(recent, 50),
+    p95_latency_ms: percentile(recent, 95),
     groups,
   };
 }

@@ -376,6 +376,20 @@ adminApi.post("/api/groups", async (c) => {
   }
 });
 
+// --- Groups backup / restore ---
+
+adminApi.get("/api/groups/export", (c) => {
+  const groups = listGroups();
+  return c.json({
+    data: {
+      exported_at: new Date().toISOString(),
+      version: 2,
+      count: groups.length,
+      groups,
+    },
+  });
+});
+
 adminApi.get("/api/groups/:id", (c) => {
   const group = getGroup(c.req.param("id"));
   if (!group) return c.json({ error: "not found" }, 404);
@@ -422,7 +436,12 @@ adminApi.get("/api/models", async (c) => {
 adminApi.get("/api/logs", (c) => {
   const limit = parseInt(c.req.query("limit") || "50", 10);
   const groupId = c.req.query("group");
-  const logs = getRecentLogs(limit, groupId || undefined);
+  const model = c.req.query("model");
+  const statusParam = c.req.query("status");
+  const status: "ok" | "error" | undefined = statusParam === "ok" || statusParam === "error" ? statusParam : undefined;
+  const modeParam = c.req.query("mode");
+  const streaming: boolean | undefined = modeParam === "stream" ? true : modeParam === "sync" ? false : undefined;
+  const logs = getRecentLogs(limit, groupId || undefined, model || undefined, status, streaming);
   return c.json({ data: logs });
 });
 
@@ -926,5 +945,51 @@ adminApi.get("/api/proxy/videos/generations/:taskId", async (c) => {
     );
   } catch (err) {
     return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+// --- Groups backup / restore ---
+
+adminApi.post("/api/groups/import", async (c) => {
+  try {
+    const body = await c.req.json();
+    const incoming: any[] = Array.isArray(body) ? body : Array.isArray(body?.groups) ? body.groups : null;
+    if (!incoming) {
+      return c.json({ error: "Expected a JSON array of groups or { groups: [...] }" }, 400);
+    }
+
+    let created = 0;
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (const g of incoming) {
+      if (!g?.id) {
+        errors.push("group missing id — skipped");
+        continue;
+      }
+      try {
+        const existing = getGroup(g.id);
+        if (existing) {
+          updateGroup(g.id, {
+            display_name: g.display_name ?? existing.display_name,
+            aliases: g.aliases ?? existing.aliases,
+            candidates: g.candidates ?? existing.candidates,
+            strategy: g.strategy ?? existing.strategy,
+            fallback_group_ids: g.fallback_group_ids ?? existing.fallback_group_ids,
+            enabled: g.enabled ?? existing.enabled,
+          });
+          updated++;
+        } else {
+          createGroup(g);
+          created++;
+        }
+      } catch (err: any) {
+        errors.push(`${g.id}: ${err.message}`);
+      }
+    }
+
+    return c.json({ data: { created, updated, errors, total: incoming.length } }, 201);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
   }
 });

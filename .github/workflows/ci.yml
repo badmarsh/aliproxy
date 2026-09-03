@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm install
+
+      - name: Type-check server
+        run: npx tsc -p tsconfig.server.json --noEmit
+
+      - name: Tests (Vitest)
+        run: npm test
+
+      - name: Build dashboard
+        run: npm run build
+        env:
+          # keep the default local key for CI builds; tests supply their own env
+          NEXT_PUBLIC_PROXY_API_KEY: aliproxy-local-key
