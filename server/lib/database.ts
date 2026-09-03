@@ -207,6 +207,44 @@ function runMigrations(database: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_trial_quotas_model ON trial_quotas(model);
       `,
     },
+    {
+      id: "005_usage_daily_group_sentinel",
+      sql: `
+        -- SQLite treats NULLs as distinct PRIMARY KEY values, so groupless
+        -- traffic used to fork a fresh usage_daily row per request. Migrate to
+        -- a non-null sentinel ('' == groupless) and collapse any existing forks.
+        CREATE TABLE usage_daily_2026_08 (
+          date TEXT NOT NULL,
+          client_key_id TEXT NOT NULL,
+          group_id TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL,
+          requests INTEGER NOT NULL DEFAULT 0,
+          errors INTEGER NOT NULL DEFAULT 0,
+          prompt_tokens INTEGER NOT NULL DEFAULT 0,
+          completion_tokens INTEGER NOT NULL DEFAULT 0,
+          cost_usd REAL NOT NULL DEFAULT 0,
+          PRIMARY KEY (date, client_key_id, group_id, model)
+        );
+
+        INSERT OR REPLACE INTO usage_daily_2026_08 (
+          date, client_key_id, group_id, model,
+          requests, errors, prompt_tokens, completion_tokens, cost_usd
+        )
+        SELECT
+          date, client_key_id, COALESCE(group_id, '') group_id, model,
+          SUM(requests) requests, SUM(errors) errors,
+          SUM(prompt_tokens) prompt_tokens, SUM(completion_tokens) completion_tokens,
+          SUM(cost_usd) cost_usd
+        FROM usage_daily
+        GROUP BY date, client_key_id, COALESCE(group_id, ''), model;
+
+        DROP TABLE usage_daily;
+        ALTER TABLE usage_daily_2026_08 RENAME TO usage_daily;
+
+        CREATE INDEX IF NOT EXISTS idx_usage_daily_date ON usage_daily(date);
+        CREATE INDEX IF NOT EXISTS idx_usage_daily_key ON usage_daily(client_key_id);
+      `,
+    },
   ];
 
   const insertMigration = database.prepare(

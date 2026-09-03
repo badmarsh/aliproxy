@@ -54,8 +54,8 @@ export default function QuotaRadarPage() {
   } | null>(null)
   const [savingCell, setSavingCell] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true)
     setError(null)
     try {
       const [r, e] = await Promise.all([fetchTrialRadar(), fetchExpiringTrials(7)])
@@ -64,13 +64,13 @@ export default function QuotaRadarPage() {
     } catch (err: any) {
       setError(err.message || 'Failed to load trial radar')
     } finally {
-      setLoading(false)
+      if (!opts.silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    load()
-    const interval = setInterval(load, 15000)
+    void load()
+    const interval = setInterval(() => void load({ silent: true }), 15000)
     return () => clearInterval(interval)
   }, [load])
 
@@ -130,7 +130,7 @@ export default function QuotaRadarPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
             {loading ? 'Scanning…' : 'Refresh'}
           </Button>
           <Button size="sm" onClick={handleReseed} disabled={busy}>

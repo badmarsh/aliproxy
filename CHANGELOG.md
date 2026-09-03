@@ -4,6 +4,25 @@ Calendar versioning since 2026 (`<year>.<release>.<patch>`). Highlights only; se
 
 ---
 
+## 2026.8.0 — “Hardening + HUD” (2026-09-03)
+
+- **Dashboard URL fixes**: all API calls now route through a shared `apiUrl()`;
+  `fetchLogs` builds URL objects with `urlFor()` and a real base, fixing the
+  `new URL("")` crash that killed the Metrics log table in same-origin setups.
+- **Health status**: `/health` now rewrites through the dashboard origin, so the
+  Online/Offline badge reports the live proxy (`proxy_version: 2026.8.0`).
+- **Usage rollup integrity**: groupless traffic uses a non-null `''` sentinel
+  (migration 005), collapsing the silent `usage_daily` row-forking caused by
+  SQLite treating NULLs as distinct primary-key values.
+- **Background refresh**: auto-refresh is silent on Overview, Metrics, and
+  Quota Radar — no more “Refreshing…”/“Scanning…” flicker every 10–15s.
+- **Studio history**: localStorage persistence is now size-budgeted, stripping
+  old pixel payloads first while retaining every prompt; trimmed items are
+  marked and can be regenerated with one click.
+- **HUD styling**: dot-grid/radial backdrop, card signal-glow + corner brackets,
+  animated scanline header, glowing logo/nav, pinging health dot, tabular
+  numerals, HUD-tinted selection + scrollbars, and reduced-motion respected.
+
 ## 2026.7.0 — “Perfection pass” (2026-09-03)
 
 Gap analysis + execution of `docs/MEGAPROMPT.md`:

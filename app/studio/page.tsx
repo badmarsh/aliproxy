@@ -20,6 +20,7 @@ import {
   studioPollVideo,
   type ModelGroupItem,
 } from '@/lib/api-client'
+import { fitGalleryForStorage } from '@/lib/studio-history'
 
 // ---------------------------------------------------------------------------
 // Prompt block model
@@ -185,6 +186,8 @@ interface GalleryItem {
   videoUrl?: string | null
   taskId?: string
   error?: string
+  /** true when pixel data was stripped to keep the browser under localStorage quota */
+  trimmed?: boolean
 }
 
 const STORAGE_KEY = 'aliproxy.studio.v1'
@@ -266,16 +269,23 @@ export default function StudioPage() {
     }
   }, [])
 
-  // Persist (debounced)
+  // Persist (debounced). Real PNG data URLs blow localStorage's ~5MB quota
+  // after a few generations, so the payload is size-budgeted: pixel data is
+  // stripped oldest-first while every prompt/metadata item is retained.
   useEffect(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
+      const baseBytes = JSON.stringify({ blocks, negative, mode }).length
+      const storedGallery = fitGalleryForStorage(gallery, { baseBytes }).slice(0, 40)
+      const payload = JSON.stringify({ blocks, negative, mode, gallery: storedGallery })
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ blocks, negative, mode, gallery: gallery.slice(0, 40) }))
+        window.localStorage.setItem(STORAGE_KEY, payload)
       } catch {
-        // storage full — drop oldest and retry once
+        // The budget already strips data URLs. If the browser still refuses,
+        // keep only the newest metadata rather than throwing the whole state away.
         try {
-          window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ blocks, negative, mode, gallery: gallery.slice(0, 10) }))
+          const minimal = JSON.stringify({ blocks, negative, mode, gallery: storedGallery.slice(0, 10).map((g) => ({ ...g, images: undefined })) })
+          window.localStorage.setItem(STORAGE_KEY, minimal)
         } catch {
           /* give up quietly */
         }
@@ -513,6 +523,7 @@ export default function StudioPage() {
   }
 
   const activeModel = mode === 'image' ? imageModel : videoModel
+  const trimmedCount = gallery.filter((g) => g.trimmed).length
 
   return (
     <AppShell title="Studio">
@@ -807,6 +818,7 @@ export default function StudioPage() {
             <CardTitle className="text-sm">Results</CardTitle>
             <CardDescription className="text-xs">
               {gallery.length} item{gallery.length === 1 ? '' : 's'} · stored locally · click to enlarge
+              {trimmedCount > 0 && <span className="font-medium text-amber-600"> · {trimmedCount} image{trimmedCount === 1 ? '' : 's'} trimmed for storage</span>}
             </CardDescription>
           </CardHeader>
           <CardContent className="max-h-[70vh] space-y-3 overflow-y-auto">
@@ -828,6 +840,16 @@ export default function StudioPage() {
                     {item.model} · {item.latencyMs ? `${(item.latencyMs / 1000).toFixed(1)}s` : '…'}
                   </span>
                 </div>
+
+                {item.trimmed && item.kind === 'image' && (!item.images || item.images.length === 0) && (
+                  <div className="rounded-md border border-dashed border-amber-300 bg-amber-50/50 p-2 text-xs text-amber-800">
+                    Image data was trimmed to keep local history under storage quota — the prompt is retained.{' '}
+                    <button className="font-semibold underline underline-offset-2" onClick={() => reuse(item)}>
+                      Reuse
+                    </button>{' '}
+                    to regenerate.
+                  </div>
+                )}
 
                 {item.kind === 'image' && item.images && (
                   <div className={`grid gap-1.5 ${item.images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>

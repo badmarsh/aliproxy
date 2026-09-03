@@ -13,6 +13,12 @@ const nextConfig = {
         source: '/api/:path*',
         destination: `${target}/api/:path*`,
       },
+      // The dashboard polls /health from the browser; without a rewrite it
+      // 404s at the Next origin and every status badge reads "Offline".
+      {
+        source: '/health',
+        destination: `${target}/health`,
+      },
     ]
   },
 }

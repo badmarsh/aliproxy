@@ -247,6 +247,11 @@ export function recordUsage(entry: RecordUsageInput): void {
   const completionTokens = entry.completion_tokens || 0;
   const cost = estimateCost(entry.model, promptTokens, completionTokens).cost_usd;
 
+  // '' is the sentinel for groupless traffic. NULL cannot be used in the
+  // usage_daily primary key: SQLite treats each NULL as distinct, which would
+  // fork a new row for every groupless request (404s, video polls, etc).
+  const groupId = entry.group_id || '';
+
   db.prepare(`
     INSERT INTO usage_daily (date, client_key_id, group_id, model, requests, errors, prompt_tokens, completion_tokens, cost_usd)
     VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
@@ -259,7 +264,7 @@ export function recordUsage(entry: RecordUsageInput): void {
   `).run(
     date,
     entry.client_key_id,
-    entry.group_id,
+    groupId,
     entry.model,
     isError,
     promptTokens,

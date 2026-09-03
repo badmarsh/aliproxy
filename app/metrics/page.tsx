@@ -37,8 +37,8 @@ export default function MetricsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'error'>('all')
   const [modeFilter, setModeFilter] = useState<'all' | 'stream' | 'sync'>('all')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true)
     setError(null)
     try {
       const [s, l, t, h] = await Promise.all([
@@ -58,13 +58,13 @@ export default function MetricsPage() {
     } catch (err: any) {
       setError(err.message || 'Failed to load metrics')
     } finally {
-      setLoading(false)
+      if (!opts.silent) setLoading(false)
     }
   }, [hours, modelFilter, statusFilter, modeFilter])
 
   useEffect(() => {
-    load()
-    const interval = setInterval(load, 15000)
+    void load()
+    const interval = setInterval(() => void load({ silent: true }), 15000)
     return () => clearInterval(interval)
   }, [load])
 
@@ -83,7 +83,7 @@ export default function MetricsPage() {
               {h}h
             </Button>
           ))}
-          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
             {loading ? '…' : 'Refresh'}
           </Button>
         </div>

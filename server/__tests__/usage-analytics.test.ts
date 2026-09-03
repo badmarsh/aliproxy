@@ -48,6 +48,24 @@ describe("usage analytics & savings meter", () => {
     expect(savings.all_time.requests).toBe(1);
   });
 
+  it("does not fork daily rollups for groupless traffic", () => {
+    // SQLite treats NULLs as distinct in composite primary keys. Groupless
+    // requests must roll up into a single '' sentinel row, not one per call.
+    recordUsage({ client_key_id: "__master__", group_id: null, model: "m", status_code: 404, prompt_tokens: 0, completion_tokens: 0 });
+    recordUsage({ client_key_id: "__master__", group_id: null, model: "m", status_code: 404, prompt_tokens: 0, completion_tokens: 0 });
+    recordUsage({ client_key_id: "__master__", group_id: null, model: "m", status_code: 200, prompt_tokens: 0, completion_tokens: 0 });
+
+    const daily = getUsageDaily(7);
+    expect(daily).toHaveLength(1);
+    expect(daily[0].requests).toBe(3);
+    expect(daily[0].errors).toBe(2);
+
+    const summary = getUsageSummary(7);
+    expect(summary.totals.requests).toBe(3);
+    expect(summary.totals.errors).toBe(2);
+    expect(summary.by_group).toHaveLength(0);
+  });
+
   it("returns a daily series", () => {
     recordUsage({ client_key_id: "__master__", group_id: null, model: "m", status_code: 200, prompt_tokens: 10, completion_tokens: 10 });
     const daily = getUsageDaily(7);
