@@ -4,6 +4,19 @@ Calendar versioning since 2026 (`<year>.<release>.<patch>`). Highlights only; se
 
 ---
 
+## 2026.6.0 (2026-09-03)
+
+- **Studio — media prompt canvas**: block-based prompt composition (subject / style /
+  lighting / camera / mood / quality / custom) with drag-to-reorder, per-block mute,
+  live color-coded compiled prompt + char/token count, negative-prompt strip, curated
+  templates, 🎲 surprise-me, ⌘⏎ generate.
+- Image mode (model/size/×n picker) and video mode (async task submit + auto-polling
+  with live status), results gallery with lightbox, download, and one-click
+  "reuse prompt" iteration. Canvas + history persist in the browser.
+- Admin-authed passthroughs: `POST /api/proxy/images/generations`,
+  `POST /api/proxy/videos/generations`, `GET /api/proxy/videos/generations/:taskId`
+  (all metered — request log, usage rollup, trial-call consumption).
+
 ## 2026.5.0 (2026-09-03)
 
 - **Intake folder**: watched directory (default `./incoming`) — drop raw `sk-…` lines,

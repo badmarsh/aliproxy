@@ -35,6 +35,7 @@ import {
   setTrialQuota,
   deleteTrialQuota,
   consumeTrialTokens,
+  consumeTrialCall,
 } from "./lib/trial-store.js";
 import { listPresetProviders } from "./lib/trial-presets.js";
 import { PROVIDERS } from "./lib/providers.js";
@@ -51,7 +52,7 @@ import {
   MASTER_USAGE_ID,
 } from "./lib/client-key-store.js";
 import { getUsageSummary, getUsageDaily, getSavings } from "./lib/usage-analytics.js";
-import { routeChatCompletions } from "./lib/router.js";
+import { routeChatCompletions, routeImagesGenerations, routeVideoSubmit, routeVideoPoll } from "./lib/router.js";
 import { scanIntakeDir, getIntakeStatus } from "./lib/intake-watcher.js";
 
 const log = createLogger("admin-api");
@@ -795,4 +796,135 @@ adminApi.get("/api/keys/intake/status", (c) => {
 adminApi.post("/api/keys/intake/scan", async (c) => {
   const report = await scanIntakeDir();
   return c.json({ data: report });
+});
+
+// --- Studio passthroughs (admin-authed image/video generation) ---
+
+adminApi.post("/api/proxy/images/generations", async (c) => {
+  const startTime = Date.now();
+  try {
+    const body = await c.req.json();
+    if (!body.model || !body.prompt) {
+      return c.json({ error: "'model' and 'prompt' are required" }, 400);
+    }
+
+    const result = await routeImagesGenerations(body, "studio", {
+      usageId: MASTER_USAGE_ID,
+      allowedGroupIds: null,
+    });
+    const responseBody: any = await result.response.json().catch(() => null);
+    const latency = Date.now() - startTime;
+
+    logRequest({
+      request_id: result.requestId,
+      timestamp: new Date().toISOString(),
+      client_ip: "studio",
+      requested_model: body.model,
+      resolved_group_id: result.groupId || null,
+      upstream_model_id: result.upstreamModel || null,
+      api_key_id: result.keyId || null,
+      status_code: result.response.status,
+      error_code: responseBody?.error?.code || (result.response.ok ? null : "upstream_error"),
+      latency_ms: latency,
+      ttft_ms: null,
+      prompt_tokens: null,
+      completion_tokens: null,
+      streaming: false,
+      retry_count: result.retryCount,
+    });
+
+    recordUsage({
+      client_key_id: MASTER_USAGE_ID,
+      group_id: result.groupId || null,
+      model: result.upstreamModel || body.model,
+      status_code: result.response.status,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+    });
+
+    if (result.response.ok && result.keyId && result.upstreamModel) {
+      consumeTrialCall(result.keyId, result.upstreamModel);
+    }
+
+    return c.json(
+      responseBody ?? { error: { message: "upstream error", type: "upstream_error", code: "upstream_error" } },
+      result.response.status as any,
+      { "X-Request-Id": result.requestId, "X-Aliproxy-Upstream-Model": result.upstreamModel || "" },
+    );
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+adminApi.post("/api/proxy/videos/generations", async (c) => {
+  const startTime = Date.now();
+  try {
+    const body = await c.req.json();
+    if (!body.model || !body.input) {
+      return c.json({ error: "'model' and 'input' are required" }, 400);
+    }
+
+    const result = await routeVideoSubmit(body, "studio", {
+      usageId: MASTER_USAGE_ID,
+      allowedGroupIds: null,
+    });
+    const responseBody: any = await result.response.json().catch(() => null);
+    const latency = Date.now() - startTime;
+
+    logRequest({
+      request_id: result.requestId,
+      timestamp: new Date().toISOString(),
+      client_ip: "studio",
+      requested_model: body.model,
+      resolved_group_id: result.groupId || null,
+      upstream_model_id: result.upstreamModel || null,
+      api_key_id: result.keyId || null,
+      status_code: result.response.status,
+      error_code: responseBody?.output?.code || (result.response.ok ? null : "upstream_error"),
+      latency_ms: latency,
+      ttft_ms: null,
+      prompt_tokens: null,
+      completion_tokens: null,
+      streaming: false,
+      retry_count: result.retryCount,
+    });
+
+    recordUsage({
+      client_key_id: MASTER_USAGE_ID,
+      group_id: result.groupId || null,
+      model: result.upstreamModel || body.model,
+      status_code: result.response.status,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+    });
+
+    if (result.response.ok && result.keyId && result.upstreamModel) {
+      consumeTrialCall(result.keyId, result.upstreamModel);
+    }
+
+    return c.json(
+      responseBody ?? { error: { message: "upstream error", type: "upstream_error", code: "upstream_error" } },
+      result.response.status as any,
+      { "X-Request-Id": result.requestId },
+    );
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
+adminApi.get("/api/proxy/videos/generations/:taskId", async (c) => {
+  try {
+    const result = await routeVideoPoll(c.req.param("taskId"), "studio", {
+      usageId: MASTER_USAGE_ID,
+      allowedGroupIds: null,
+    });
+    const responseBody: any = await result.response.json().catch(() => null);
+    return c.json(
+      responseBody ?? { error: { message: "upstream error", type: "upstream_error", code: "upstream_error" } },
+      result.response.status as any,
+      { "X-Request-Id": result.requestId },
+    );
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 500);
+  }
 });

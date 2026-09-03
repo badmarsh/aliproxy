@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 const NAV = [
   { href: '/', label: 'Overview' },
   { href: '/groups', label: 'Groups' },
+  { href: '/studio', label: 'Studio' },
   { href: '/quota-radar', label: 'Quota Radar' },
   { href: '/client-keys', label: 'Client Keys' },
   { href: '/usage', label: 'Usage & Savings' },

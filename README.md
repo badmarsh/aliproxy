@@ -20,6 +20,7 @@ $ curl -s localhost:8080/api/usage/savings
 | **Quota Radar** | Model × key matrix of remaining free quota; “expiring soon” alerts so you burn dying trials first |
 | **Smart routing** | Exhaustion-aware dispatch — skips keys whose trial for that model is spent; `first_available` prefers soonest-expiring quota; fails closed with `503 trial_exhausted` instead of silently burning paid quota |
 | **Multimodal** | `/v1/chat/completions` (sync + streaming), `/v1/embeddings`, `/v1/images/generations` (OpenAI shape; auto-translated to DashScope native text2image), `/v1/videos/generations` (async submit + poll) |
+| **Studio** | Visual prompt canvas — drag-and-drop prompt blocks, live compiled prompt, templates, image + video generation with a persistent results gallery |
 | **Client keys** | Issue your own `sk-aliproxy-…` keys with RPM limits, daily request/token budgets, and group allowlists — share the farm without sharing the master key |
 | **Savings meter** | Per-model pricing catalog × metered usage = estimated spend avoided, daily rollups, per-model/group/consumer breakdowns |
 | **Key farm tools** | Bulk import (JSON/CSV/text), one-click sweep (validate all keys + reseed trials), provider presets for DashScope (intl/cn), OpenAI, DeepSeek, OpenRouter, Groq, Mistral, Ollama, vLLM |

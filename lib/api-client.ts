@@ -546,3 +546,60 @@ export async function scanIntakeFolder(): Promise<IntakeReport> {
   const json = await res.json();
   return json.data;
 }
+
+// --- Studio (media generation canvas) ---
+
+export interface StudioImageResult {
+  created: number;
+  data: Array<{ url?: string; b64_json?: string; revised_prompt?: string }>;
+}
+
+export interface StudioVideoTask {
+  output: { task_id: string; task_status: string; video_url?: string; message?: string };
+  request_id?: string;
+  usage?: Record<string, unknown>;
+}
+
+async function postStudio(path: string, body: unknown): Promise<any> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = json?.error?.message || json?.error || `Studio request failed (${res.status})`;
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+  }
+  return json;
+}
+
+export async function studioGenerateImage(body: {
+  model: string;
+  prompt: string;
+  negative_prompt?: string;
+  n?: number;
+  size?: string;
+}): Promise<StudioImageResult> {
+  return postStudio('/api/proxy/images/generations', body);
+}
+
+export async function studioSubmitVideo(body: {
+  model: string;
+  input: { prompt: string; negative_prompt?: string };
+  parameters?: Record<string, unknown>;
+}): Promise<StudioVideoTask> {
+  return postStudio('/api/proxy/videos/generations', body);
+}
+
+export async function studioPollVideo(taskId: string): Promise<StudioVideoTask> {
+  const res = await fetch(`${BASE_URL}/api/proxy/videos/generations/${encodeURIComponent(taskId)}`, {
+    headers: getHeaders(),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = json?.error?.message || `Poll failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return json;
+}
